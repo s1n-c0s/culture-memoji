@@ -501,7 +501,12 @@ public struct AvatarDetailView: View {
     }
     
     private func resetCamera() {
-        activePoseName = nil
+        withAnimation {
+            activePoseName = nil
+        }
+        if let view = stageController.avtView {
+            AvatarKitBridge.shared.resetCameraFraming(on: view)
+        }
         stageMutationId = UUID()
     }
     

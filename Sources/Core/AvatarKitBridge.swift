@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import simd
 
 /// High-level bridge to Apple's system AvatarKit framework.
 /// Uses runtime dynamic loading to ensure compatibility and safe execution.
@@ -152,10 +153,80 @@ public final class AvatarKitBridge {
             _ = (view as AnyObject).perform(ctrlSel, with: true as NSNumber)
         }
         
+        // Stabilize camera controller orbit target and up-vector
+        stabilizeCameraController(on: view)
+        
         // Set comfortable uncropped default FOV (46.0) so the model never touches viewport edges
         setCameraFieldOfView(46.0, on: view)
         
         return view
+    }
+    
+    /// Stabilizes the camera controller by locking orbit target to the avatar head center (0, 10, 0),
+    /// fixing world up-vector to (0, 1, 0), clearing roll/gimbal flip, and disabling hit-test target drift.
+    public func stabilizeCameraController(on view: NSView, centerTarget: SIMD3<Float> = SIMD3<Float>(0, 10, 0)) {
+        let camCtrlSel = NSSelectorFromString("defaultCameraController")
+        guard view.responds(to: camCtrlSel),
+              let camCtrl = (view as AnyObject).perform(camCtrlSel)?.takeUnretainedValue() else { return }
+        
+        // 1. Disable hit-test target snapping so mouse clicks on face/mesh don't move orbit center
+        (camCtrl as AnyObject).setValue(false, forKey: "automaticTarget")
+        (camCtrl as AnyObject).setValue(false, forKey: "isTargetFromHitTest")
+        
+        // 2. Stop any ongoing inertia
+        let stopSel = NSSelectorFromString("stopInertia")
+        if camCtrl.responds(to: stopSel) {
+            _ = (camCtrl as AnyObject).perform(stopSel)
+        }
+        
+        // 3. Clear roll/tilt
+        let clearRollSel = NSSelectorFromString("clearRoll")
+        if camCtrl.responds(to: clearRollSel) {
+            _ = (camCtrl as AnyObject).perform(clearRollSel)
+        }
+        
+        // 4. Reset internal orientation state
+        let resetStateSel = NSSelectorFromString("_resetOrientationState")
+        if camCtrl.responds(to: resetStateSel) {
+            _ = (camCtrl as AnyObject).perform(resetStateSel)
+        }
+        
+        // 5. Lock target to head center
+        typealias VecFunc = @convention(c) (AnyObject, Selector, SIMD3<Float>) -> Void
+        let setTargetSel = NSSelectorFromString("setTarget:")
+        if let m = class_getInstanceMethod(type(of: camCtrl), setTargetSel) {
+            unsafeBitCast(method_getImplementation(m), to: VecFunc.self)(camCtrl, setTargetSel, centerTarget)
+        }
+        
+        // 6. Lock up and worldUp to true vertical
+        let setUpSel = NSSelectorFromString("setUp:")
+        if let m = class_getInstanceMethod(type(of: camCtrl), setUpSel) {
+            unsafeBitCast(method_getImplementation(m), to: VecFunc.self)(camCtrl, setUpSel, SIMD3<Float>(0, 1, 0))
+        }
+        let setWorldUpSel = NSSelectorFromString("setWorldUp:")
+        if let m = class_getInstanceMethod(type(of: camCtrl), setWorldUpSel) {
+            unsafeBitCast(method_getImplementation(m), to: VecFunc.self)(camCtrl, setWorldUpSel, SIMD3<Float>(0, 1, 0))
+        }
+        
+        // 7. Ensure active pointOfView has zero roll (no diagonal tilt)
+        let povSel = NSSelectorFromString("pointOfView")
+        if view.responds(to: povSel),
+           let pov = (view as AnyObject).perform(povSel)?.takeUnretainedValue() {
+            typealias PosFunc = @convention(c) (AnyObject, Selector) -> SIMD3<Float>
+            let mEuler = class_getInstanceMethod(type(of: pov), NSSelectorFromString("eulerAngles"))
+            let mSetEuler = class_getInstanceMethod(type(of: pov), NSSelectorFromString("setEulerAngles:"))
+            if let mE = mEuler, let mSE = mSetEuler {
+                var e = unsafeBitCast(method_getImplementation(mE), to: PosFunc.self)(pov, NSSelectorFromString("eulerAngles"))
+                if abs(abs(e.z) - Float.pi) < 0.5 {
+                    e.x = Float.pi - e.x
+                    e.y = e.y + Float.pi
+                    e.z = 0
+                } else {
+                    e.z = 0
+                }
+                unsafeBitCast(method_getImplementation(mSE), to: VecFunc.self)(pov, NSSelectorFromString("setEulerAngles:"), e)
+            }
+        }
     }
     
     /// Sets camera field of view on an AVTView to control framing and prevent cropping
@@ -295,11 +366,14 @@ public final class AvatarKitBridge {
     }
     
     /// Smoothly transitions the 3D AVTView to a given sticker pose/expression,
-    /// ensuring the camera FOV is calibrated so hands, gestures, and accessories are never cropped.
+    /// ensuring the camera FOV is calibrated and the rotation axis remains stable and upright.
     public func applyStickerPose(named stickerName: String, to view: NSView, animojiNamed: String? = nil, duration: Double = 0.25) {
         guard let cfg = stickerConfiguration(named: stickerName, animojiNamed: animojiNamed) else {
             return // Pose not found — silently skip to avoid crash
         }
+        
+        // Stabilize camera controller before transition begins to halt any ongoing drags/inertia
+        stabilizeCameraController(on: view)
         
         // Calibrate sticker camera FOV so hands and wide gestures don't get cropped
         let camSel = NSSelectorFromString("camera")
@@ -333,11 +407,16 @@ public final class AvatarKitBridge {
                     }
                 }
             }
+            // Re-stabilize camera controller on the newly attached sticker camera
+            self?.stabilizeCameraController(on: view)
         })
     }
     
-    /// Smoothly transitions back to neutral pose and resets camera to uncropped default framing
+    /// Smoothly transitions back to neutral pose, restores canonical frontal camera framing,
+    /// and stabilizes the camera controller axis so future rotations remain upright.
     public func resetToNeutralPose(on view: NSView, duration: Double = 0.25) {
+        stabilizeCameraController(on: view)
+        
         let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")
         guard view.responds(to: transSel),
               let method = class_getInstanceMethod(type(of: view), transSel) else { return }
@@ -345,8 +424,28 @@ public final class AvatarKitBridge {
         typealias TransFunc = @convention(c) (AnyObject, Selector, AnyObject?, Double, (@convention(block) () -> Void)?) -> Void
         let callable = unsafeBitCast(method_getImplementation(method), to: TransFunc.self)
         callable(view, transSel, nil, duration, { [weak self] in
+            // Restore canonical front camera framing: pos (0, 15, 59.59), rot (-1, 0, 0, 0.06951647)
+            let povSel = NSSelectorFromString("pointOfView")
+            if let pov = (view as AnyObject).perform(povSel)?.takeUnretainedValue() {
+                typealias VecFunc = @convention(c) (AnyObject, Selector, SIMD3<Float>) -> Void
+                typealias RotFunc = @convention(c) (AnyObject, Selector, SIMD4<Float>) -> Void
+                let mSetPos = class_getInstanceMethod(type(of: pov), NSSelectorFromString("setPosition:"))
+                if let m = mSetPos {
+                    unsafeBitCast(method_getImplementation(m), to: VecFunc.self)(pov, NSSelectorFromString("setPosition:"), SIMD3<Float>(0, 15, 59.59))
+                }
+                let mSetRot = class_getInstanceMethod(type(of: pov), NSSelectorFromString("setRotation:"))
+                if let m = mSetRot {
+                    unsafeBitCast(method_getImplementation(m), to: RotFunc.self)(pov, NSSelectorFromString("setRotation:"), SIMD4<Float>(-1.0, 0.0, 0.0, 0.06951647))
+                }
+            }
             self?.setCameraFieldOfView(46.0, on: view)
+            self?.stabilizeCameraController(on: view)
         })
+    }
+    
+    /// Explicitly resets the camera framing, position, and orientation back to the canonical front view
+    public func resetCameraFraming(on view: NSView) {
+        resetToNeutralPose(on: view, duration: 0.25)
     }
     
     // MARK: - Snapshots & Rendering
