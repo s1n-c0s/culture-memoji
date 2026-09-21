@@ -189,59 +189,79 @@ public final class AvatarKitBridge {
     
     // MARK: - Stickers & Poses
     
-    /// Lists all sticker configuration names available for Animoji or Memoji
+    /// The two packs that together cover all available Memoji/Animoji poses
+    private let stickerPacks = ["stickers", "posesPack"]
+    
+    /// Lists all sticker names from BOTH the "stickers" and "posesPack" packs,
+    /// deduped and in stable order (stickers first, posesPack after).
     public func availableStickerNames(forAnimojiNamed name: String?) -> [String] {
         guard let cls = avtStickerConfigurationClass else { return [] }
         
-        if let animojiName = name {
-            let sel = NSSelectorFromString("availableStickerNamesForAnimojiNamed:inStickerPack:")
-            typealias Func = @convention(c) (AnyObject, Selector, NSString, NSString) -> [String]?
-            guard let method = class_getClassMethod(cls, sel) else { return [] }
-            let callable = unsafeBitCast(method_getImplementation(method), to: Func.self)
-            return callable(cls as AnyObject, sel, animojiName as NSString, "stickers" as NSString) ?? []
-        } else {
-            let sel = NSSelectorFromString("availableStickerNamesForMemojiInStickerPack:")
-            typealias Func = @convention(c) (AnyObject, Selector, NSString) -> [String]?
-            guard let method = class_getClassMethod(cls, sel) else { return [] }
-            let callable = unsafeBitCast(method_getImplementation(method), to: Func.self)
-            return callable(cls as AnyObject, sel, "stickers" as NSString) ?? []
-        }
-    }
-    
-    /// Loads a specific sticker configuration — returns nil safely if not found
-    public func stickerConfiguration(named stickerName: String, animojiNamed: String? = nil) -> AnyObject? {
-        guard let cls = avtStickerConfigurationClass else { return nil }
+        var seen = Set<String>()
+        var result: [String] = []
         
-        let cfg: AnyObject?
-        
-        if let animoji = animojiNamed {
-            let sel = NSSelectorFromString("stickerConfigurationForAnimojiNamed:inStickerPack:stickerName:")
-            typealias Func = @convention(c) (AnyObject, Selector, NSString, NSString, NSString) -> AnyObject?
-            guard let method = class_getClassMethod(cls, sel) else { return nil }
-            let callable = unsafeBitCast(method_getImplementation(method), to: Func.self)
-            cfg = callable(cls as AnyObject, sel, animoji as NSString, "stickers" as NSString, stickerName as NSString)
-        } else {
-            let sel = NSSelectorFromString("stickerConfigurationForMemojiInStickerPack:stickerName:")
-            typealias Func = @convention(c) (AnyObject, Selector, NSString, NSString) -> AnyObject?
-            guard let method = class_getClassMethod(cls, sel) else { return nil }
-            let callable = unsafeBitCast(method_getImplementation(method), to: Func.self)
-            cfg = callable(cls as AnyObject, sel, "stickers" as NSString, stickerName as NSString)
-        }
-        
-        // Only call loadIfNeeded if we actually got a config object
-        if let validCfg = cfg {
-            let loadSel = NSSelectorFromString("loadIfNeeded")
-            if (validCfg as AnyObject).responds(to: loadSel) {
-                _ = (validCfg as AnyObject).perform(loadSel)
+        for pack in stickerPacks {
+            let names: [String]?
+            if let animojiName = name {
+                let sel = NSSelectorFromString("availableStickerNamesForAnimojiNamed:inStickerPack:")
+                typealias Func = @convention(c) (AnyObject, Selector, NSString, NSString) -> [String]?
+                guard let method = class_getClassMethod(cls, sel) else { continue }
+                names = unsafeBitCast(method_getImplementation(method), to: Func.self)(
+                    cls as AnyObject, sel, animojiName as NSString, pack as NSString)
+            } else {
+                let sel = NSSelectorFromString("availableStickerNamesForMemojiInStickerPack:")
+                typealias Func = @convention(c) (AnyObject, Selector, NSString) -> [String]?
+                guard let method = class_getClassMethod(cls, sel) else { continue }
+                names = unsafeBitCast(method_getImplementation(method), to: Func.self)(
+                    cls as AnyObject, sel, pack as NSString)
+            }
+            for n in (names ?? []) where seen.insert(n).inserted {
+                result.append(n)
             }
         }
         
-        return cfg
+        return result
+    }
+    
+    /// Loads a sticker configuration by name, searching both "stickers" and "posesPack".
+    /// Returns nil safely if not found in either pack.
+    public func stickerConfiguration(named stickerName: String, animojiNamed: String? = nil) -> AnyObject? {
+        guard let cls = avtStickerConfigurationClass else { return nil }
+        
+        for pack in stickerPacks {
+            let cfg: AnyObject?
+            if let animoji = animojiNamed {
+                let sel = NSSelectorFromString("stickerConfigurationForAnimojiNamed:inStickerPack:stickerName:")
+                typealias Func = @convention(c) (AnyObject, Selector, NSString, NSString, NSString) -> AnyObject?
+                guard let method = class_getClassMethod(cls, sel) else { continue }
+                cfg = unsafeBitCast(method_getImplementation(method), to: Func.self)(
+                    cls as AnyObject, sel, animoji as NSString, pack as NSString, stickerName as NSString)
+            } else {
+                let sel = NSSelectorFromString("stickerConfigurationForMemojiInStickerPack:stickerName:")
+                typealias Func = @convention(c) (AnyObject, Selector, NSString, NSString) -> AnyObject?
+                guard let method = class_getClassMethod(cls, sel) else { continue }
+                cfg = unsafeBitCast(method_getImplementation(method), to: Func.self)(
+                    cls as AnyObject, sel, pack as NSString, stickerName as NSString)
+            }
+            
+            if let validCfg = cfg {
+                // Pre-load the pose data into memory
+                let loadSel = NSSelectorFromString("loadIfNeeded")
+                if (validCfg as AnyObject).responds(to: loadSel) {
+                    _ = (validCfg as AnyObject).perform(loadSel)
+                }
+                return validCfg
+            }
+        }
+        
+        return nil // Not found in any known pack
     }
     
     /// Smoothly transitions the 3D AVTView to a given sticker pose/expression
     public func applyStickerPose(named stickerName: String, to view: NSView, animojiNamed: String? = nil, duration: Double = 0.25) {
-        guard let cfg = stickerConfiguration(named: stickerName, animojiNamed: animojiNamed) else { return }
+        guard let cfg = stickerConfiguration(named: stickerName, animojiNamed: animojiNamed) else {
+            return // Pose not found — silently skip to avoid crash
+        }
         let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")
         guard view.responds(to: transSel),
               let method = class_getInstanceMethod(type(of: view), transSel) else { return }

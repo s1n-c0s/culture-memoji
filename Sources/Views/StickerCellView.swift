@@ -31,13 +31,13 @@ public struct StickerCellView: View {
     
     public var body: some View {
         VStack(spacing: 8) {
-            // Sticker Image Container
+            // Sticker Image Container — tap anywhere to apply the pose to the 3D stage
             ZStack {
                 RoundedRectangle(cornerRadius: 14)
                     .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovered ? 0.9 : 0.6))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14)
-                            .stroke(isHovered ? Color.accentColor.opacity(0.5) : Color.gray.opacity(0.15), lineWidth: isHovered ? 1.5 : 1)
+                            .stroke(isHovered ? Color.accentColor.opacity(0.6) : Color.gray.opacity(0.15), lineWidth: isHovered ? 2.0 : 1)
                     )
                 
                 if let img = loadedImage {
@@ -70,37 +70,19 @@ public struct StickerCellView: View {
                     .transition(.opacity.combined(with: .scale))
                 }
                 
-                // Hover Action Bar
+                // Hover Action Bar — copy and export shortcuts shown on hover
                 if isHovered {
                     VStack {
-                        HStack {
-                            Spacer()
-                            // Animate 3D pose button
-                            Button(action: {
-                                onSelectPose(sticker.name)
-                            }) {
-                                Image(systemName: "cube.fill")
-                                    .font(.system(size: 11))
-                                    .padding(6)
-                                    .background(.ultraThinMaterial)
-                                    .clipShape(Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .help("Preview 3D pose in stage")
-                        }
-                        .padding(8)
-                        
                         Spacer()
                         
                         HStack(spacing: 6) {
                             // Copy button
                             Button(action: copySticker) {
-                                Label("Copy", systemImage: "doc.on.doc")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 11))
+                                    .padding(5)
                                     .background(.ultraThinMaterial)
-                                    .clipShape(Capsule())
+                                    .clipShape(Circle())
                             }
                             .buttonStyle(.plain)
                             .help("Copy transparent PNG to clipboard")
@@ -126,6 +108,11 @@ public struct StickerCellView: View {
                 }
             }
             .frame(height: 130)
+            .contentShape(RoundedRectangle(cornerRadius: 14))
+            .onTapGesture {
+                // Clicking the sticker directly applies the 3D pose to the stage
+                onSelectPose(sticker.name)
+            }
             .onHover { hovering in
                 withAnimation(.easeInOut(duration: 0.15)) {
                     isHovered = hovering
@@ -136,7 +123,6 @@ public struct StickerCellView: View {
                 guard let img = loadedImage else {
                     return NSItemProvider()
                 }
-                // Create temp file synchronously on main thread
                 if let tempURL = StickerExportManager.shared.createTemporaryFile(for: img, filename: sticker.name) {
                     return NSItemProvider(contentsOf: tempURL) ?? NSItemProvider()
                 }
