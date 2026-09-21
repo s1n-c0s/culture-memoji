@@ -366,7 +366,7 @@ public final class AvatarKitBridge {
     }
     
     /// Smoothly transitions the 3D AVTView to a given sticker pose/expression,
-    /// ensuring the camera FOV is calibrated and the rotation axis remains stable and upright.
+    /// ensuring the camera rotation axis remains stable and upright.
     public func applyStickerPose(named stickerName: String, to view: NSView, animojiNamed: String? = nil, duration: Double = 0.25) {
         guard let cfg = stickerConfiguration(named: stickerName, animojiNamed: animojiNamed) else {
             return // Pose not found — silently skip to avoid crash
@@ -375,21 +375,6 @@ public final class AvatarKitBridge {
         // Stabilize camera controller before transition begins to halt any ongoing drags/inertia
         stabilizeCameraController(on: view)
         
-        // Calibrate sticker camera FOV so hands and wide gestures don't get cropped
-        let camSel = NSSelectorFromString("camera")
-        if let stickerCam = (cfg as AnyObject).perform(camSel)?.takeUnretainedValue() {
-            let nodeSel = NSSelectorFromString("node")
-            if let camNode = (stickerCam as AnyObject).perform(nodeSel)?.takeUnretainedValue() {
-                let actualCamSel = NSSelectorFromString("camera")
-                if let actualCam = (camNode as AnyObject).perform(actualCamSel)?.takeUnretainedValue() {
-                    let currentFov = (actualCam as AnyObject).value(forKey: "fieldOfView") as? Double ?? 31.89
-                    // Ensure FOV is at least 42.0 degrees (or ~22% wider) to avoid cropping hands/arms/accessories
-                    let uncroppedFov = max(currentFov * 1.22, 42.0)
-                    (actualCam as AnyObject).setValue(uncroppedFov, forKey: "fieldOfView")
-                }
-            }
-        }
-        
         let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")
         guard view.responds(to: transSel),
               let method = class_getInstanceMethod(type(of: view), transSel) else { return }
@@ -397,16 +382,6 @@ public final class AvatarKitBridge {
         typealias TransFunc = @convention(c) (AnyObject, Selector, AnyObject?, Double, (@convention(block) () -> Void)?) -> Void
         let callable = unsafeBitCast(method_getImplementation(method), to: TransFunc.self)
         callable(view, transSel, cfg, duration, { [weak self] in
-            // Ensure active pointOfView camera maintains uncropped FOV
-            let povSel = NSSelectorFromString("pointOfView")
-            if let pov = (view as AnyObject).perform(povSel)?.takeUnretainedValue() {
-                if let activeCam = (pov as AnyObject).perform(camSel)?.takeUnretainedValue() {
-                    let fov = (activeCam as AnyObject).value(forKey: "fieldOfView") as? Double ?? 0
-                    if fov < 40.0 {
-                        self?.setCameraFieldOfView(42.0, on: view)
-                    }
-                }
-            }
             // Re-stabilize camera controller on the newly attached sticker camera
             self?.stabilizeCameraController(on: view)
         })
@@ -530,19 +505,6 @@ public final class AvatarKitBridge {
         }
         
         setAvatar(avatar, on: view, clone: false)
-        
-        // Calibrate camera field of view so hands, gestures, and wide poses are never cropped
-        let camSel = NSSelectorFromString("camera")
-        if let stickerCam = (cfg as AnyObject).perform(camSel)?.takeUnretainedValue() {
-            let nodeSel = NSSelectorFromString("node")
-            if let camNode = (stickerCam as AnyObject).perform(nodeSel)?.takeUnretainedValue() {
-                let actualCamSel = NSSelectorFromString("camera")
-                if let actualCam = (camNode as AnyObject).perform(actualCamSel)?.takeUnretainedValue() {
-                    let currentFov = (actualCam as AnyObject).value(forKey: "fieldOfView") as? Double ?? 31.89
-                    (actualCam as AnyObject).setValue(max(currentFov * 1.22, 42.0), forKey: "fieldOfView")
-                }
-            }
-        }
         
         let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")
         if view.responds(to: transSel),
