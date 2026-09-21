@@ -67,6 +67,7 @@ public final class StickerExportManager {
     public func copyToClipboard(image: NSImage) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
+        pasteboard.writeObjects([image])
         
         if let tiffData = image.tiffRepresentation {
             pasteboard.setData(tiffData, forType: .tiff)
@@ -110,6 +111,41 @@ public final class StickerExportManager {
         )
         
         original.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+        newImage.unlockFocus()
+        
+        return newImage
+    }
+    
+    /// Composites an avatar image over a radial gradient studio backdrop
+    public func renderWithRadialBackdrop(
+        avatarImage: NSImage,
+        backdropColors: [NSColor],
+        targetSize: CGSize? = nil
+    ) -> NSImage {
+        let size = targetSize ?? avatarImage.size
+        let newImage = NSImage(size: size)
+        
+        newImage.lockFocus()
+        let rect = NSRect(origin: .zero, size: size)
+        
+        if backdropColors.count >= 2 {
+            if let gradient = NSGradient(colors: backdropColors) {
+                let center = NSPoint(x: rect.midX, y: rect.midY)
+                let radius = max(size.width, size.height) * 0.72
+                gradient.draw(
+                    fromCenter: center,
+                    radius: 0,
+                    toCenter: center,
+                    radius: radius,
+                    options: [.drawsBeforeStartingLocation, .drawsAfterEndingLocation]
+                )
+            }
+        } else if let single = backdropColors.first {
+            single.setFill()
+            rect.fill()
+        }
+        
+        avatarImage.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
         newImage.unlockFocus()
         
         return newImage

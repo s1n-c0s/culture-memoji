@@ -325,6 +325,14 @@ public struct StickersGridView: View {
         for sticker in stickers {
             if let url = sticker.localFileURL, let img = NSImage(contentsOf: url) {
                 exportList.append((sticker.name, img))
+            } else if let avatar = avatar,
+                      let img = AvatarKitBridge.shared.snapshot(
+                        avatar: avatar,
+                        poseName: sticker.name,
+                        animojiNamed: isAnimoji ? animojiName : nil,
+                        size: CGSize(width: 512, height: 512)
+                      ) {
+                exportList.append((sticker.name, img))
             }
         }
         

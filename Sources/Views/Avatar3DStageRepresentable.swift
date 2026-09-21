@@ -1,6 +1,38 @@
 import SwiftUI
 import AppKit
 
+/// Controller for inspecting and capturing the live 3D stage viewport
+@MainActor
+public final class StageViewController: ObservableObject {
+    weak var avtView: NSView?
+    
+    public init() {}
+    
+    /// Snapshots the live 3D viewport exactly as currently rendered (including camera angle, FOV, and pose)
+    public func captureSnapshot(preferredSize: CGSize? = nil) -> NSImage? {
+        guard let view = avtView else { return nil }
+        
+        let targetSize: CGSize
+        if let size = preferredSize, size.width > 0 && size.height > 0 {
+            targetSize = size
+        } else {
+            let boundsSize = view.bounds.size
+            if boundsSize.width > 0 && boundsSize.height > 0 {
+                // Crisp 2x retina snapshot (at least 1024px for sharp export)
+                let scale = max(2.0, 1024.0 / max(boundsSize.width, boundsSize.height))
+                targetSize = CGSize(
+                    width: (boundsSize.width * scale).rounded(),
+                    height: (boundsSize.height * scale).rounded()
+                )
+            } else {
+                targetSize = CGSize(width: 1024, height: 1024)
+            }
+        }
+        
+        return AvatarKitBridge.shared.snapshot(view: view, size: targetSize)
+    }
+}
+
 /// Wraps Apple's AVTView (3D interactive SceneKit/VFX viewport) for SwiftUI.
 public struct Avatar3DStageRepresentable: NSViewRepresentable {
     public let avatar: AnyObject?
@@ -9,6 +41,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     public let animojiName: String?
     public let clone: Bool
     public let mutationId: UUID?
+    public let stageController: StageViewController?
     
     public init(
         avatar: AnyObject?,
@@ -16,7 +49,8 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         isAnimoji: Bool = false,
         animojiName: String? = nil,
         clone: Bool = true,
-        mutationId: UUID? = nil
+        mutationId: UUID? = nil,
+        stageController: StageViewController? = nil
     ) {
         self.avatar = avatar
         self.activePoseName = activePoseName
@@ -24,6 +58,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         self.animojiName = animojiName
         self.clone = clone
         self.mutationId = mutationId
+        self.stageController = stageController
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -50,6 +85,8 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         avtView.autoresizingMask = [.width, .height]
         container.addSubview(avtView)
         
+        stageController?.avtView = avtView
+        context.coordinator.stageController = stageController
         context.coordinator.avtView = avtView
         context.coordinator.currentAvatar = avatar
         context.coordinator.currentPose = activePoseName
@@ -72,6 +109,11 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     
     public func updateNSView(_ nsView: NSView, context: Context) {
         guard let avtView = context.coordinator.avtView else { return }
+        
+        if let sc = stageController, sc.avtView !== avtView {
+            sc.avtView = avtView
+            context.coordinator.stageController = sc
+        }
         
         // Ensure avtView always matches the container's bounds during frame changes / full screen
         if nsView.bounds.size.width > 0 && nsView.bounds.size.height > 0 && avtView.frame != nsView.bounds {
@@ -107,6 +149,8 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     }
     
     public static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stageController?.avtView = nil
+        coordinator.stageController = nil
         if let avtView = coordinator.avtView {
             AvatarKitBridge.shared.setAvatar(nil, on: avtView)
             coordinator.avtView = nil
@@ -115,6 +159,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     }
     
     public class Coordinator {
+        weak var stageController: StageViewController?
         var avtView: NSView?
         var currentAvatar: AnyObject?
         var currentPose: String?

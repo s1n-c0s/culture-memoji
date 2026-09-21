@@ -365,11 +365,107 @@ public final class AvatarKitBridge {
     /// Snapshots the current 3D AVTView state
     public func snapshot(view: NSView, size: CGSize) -> NSImage? {
         let sel = NSSelectorFromString("snapshotWithSize:")
-        guard view.responds(to: sel),
-              let method = class_getInstanceMethod(type(of: view), sel) else { return nil }
+        if view.responds(to: sel),
+           let method = class_getInstanceMethod(type(of: view), sel) {
+            typealias SnapFunc = @convention(c) (AnyObject, Selector, CGSize) -> AnyObject?
+            let callable = unsafeBitCast(method_getImplementation(method), to: SnapFunc.self)
+            if let img = callable(view, sel, size) as? NSImage {
+                return img
+            }
+        }
+        
+        let snapSel = NSSelectorFromString("snapshot")
+        if view.responds(to: snapSel),
+           let method = class_getInstanceMethod(type(of: view), snapSel) {
+            typealias FallbackFunc = @convention(c) (AnyObject, Selector) -> AnyObject?
+            let callable = unsafeBitCast(method_getImplementation(method), to: FallbackFunc.self)
+            if let img = callable(view, snapSel) as? NSImage {
+                return img
+            }
+        }
+        
+        return nil
+    }
+    
+    // Reusable offscreen view and sticker cache for fast posed sticker snapshots
+    private var reusableSnapshotView: NSView?
+    private let posedStickerCache = NSCache<NSString, NSImage>()
+    
+    /// Clears cached posed sticker images (e.g. after customizing an avatar)
+    public func clearPosedStickerCache() {
+        posedStickerCache.removeAllObjects()
+    }
+    
+    /// Snapshots an avatar in a specific sticker pose with transparent background
+    public func snapshot(
+        avatar: AnyObject,
+        poseName: String?,
+        animojiNamed: String? = nil,
+        size: CGSize = CGSize(width: 512, height: 512)
+    ) -> NSImage? {
+        guard let pose = poseName, !pose.isEmpty, pose != "neutral" else {
+            return snapshot(avatar: avatar, size: size, scale: 2.0)
+        }
+        
+        // Check cache first (instant)
+        let cacheKey = "\(UInt(bitPattern: ObjectIdentifier(avatar)))_\(pose)_\(animojiNamed ?? "memoji")_\(Int(size.width))" as NSString
+        if let cached = posedStickerCache.object(forKey: cacheKey) {
+            return cached
+        }
+        
+        guard let cfg = stickerConfiguration(named: pose, animojiNamed: animojiNamed),
+              let viewCls = avtViewClass as? NSView.Type else {
+            return snapshot(avatar: avatar, size: size, scale: 2.0)
+        }
+        
+        // Lazy-create or reuse the offscreen snapshot AVTView
+        let view: NSView
+        if let existing = reusableSnapshotView {
+            view = existing
+            if view.frame.size != size {
+                view.frame = NSRect(origin: .zero, size: size)
+            }
+        } else {
+            view = viewCls.init(frame: NSRect(origin: .zero, size: size))
+            reusableSnapshotView = view
+        }
+        
+        setAvatar(avatar, on: view, clone: false)
+        
+        // Calibrate camera field of view so hands, gestures, and wide poses are never cropped
+        let camSel = NSSelectorFromString("camera")
+        if let stickerCam = (cfg as AnyObject).perform(camSel)?.takeUnretainedValue() {
+            let nodeSel = NSSelectorFromString("node")
+            if let camNode = (stickerCam as AnyObject).perform(nodeSel)?.takeUnretainedValue() {
+                let actualCamSel = NSSelectorFromString("camera")
+                if let actualCam = (camNode as AnyObject).perform(actualCamSel)?.takeUnretainedValue() {
+                    let currentFov = (actualCam as AnyObject).value(forKey: "fieldOfView") as? Double ?? 31.89
+                    (actualCam as AnyObject).setValue(max(currentFov * 1.22, 42.0), forKey: "fieldOfView")
+                }
+            }
+        }
+        
+        let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")
+        if view.responds(to: transSel),
+           let method = class_getInstanceMethod(type(of: view), transSel) {
+            typealias TransFunc = @convention(c) (AnyObject, Selector, AnyObject?, Double, (@convention(block) () -> Void)?) -> Void
+            let callable = unsafeBitCast(method_getImplementation(method), to: TransFunc.self)
+            callable(view, transSel, cfg, 0.0, nil)
+        }
+        
+        let snapSel = NSSelectorFromString("snapshotWithSize:")
+        guard view.responds(to: snapSel),
+              let method = class_getInstanceMethod(type(of: view), snapSel) else {
+            return snapshot(avatar: avatar, size: size, scale: 2.0)
+        }
         
         typealias SnapFunc = @convention(c) (AnyObject, Selector, CGSize) -> AnyObject?
         let callable = unsafeBitCast(method_getImplementation(method), to: SnapFunc.self)
-        return callable(view, sel, size) as? NSImage
+        if let rendered = callable(view, snapSel, size) as? NSImage {
+            posedStickerCache.setObject(rendered, forKey: cacheKey)
+            return rendered
+        }
+        
+        return snapshot(avatar: avatar, size: size, scale: 2.0)
     }
 }

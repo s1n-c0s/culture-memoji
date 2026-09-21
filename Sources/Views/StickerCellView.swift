@@ -222,7 +222,7 @@ public struct StickerCellView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .task(id: sticker.id) {
+        .task(id: "\(sticker.id)_\(avatar != nil ? UInt(bitPattern: ObjectIdentifier(avatar!)) : 0)") {
             await loadImage()
         }
     }
@@ -238,10 +238,15 @@ public struct StickerCellView: View {
             return
         }
         
-        // 2. Fall back: render a live snapshot via AvatarKit
+        // 2. Fall back: render a live posed snapshot via AvatarKit
         guard let avatar = avatar else { return }
-        let snap = AvatarKitBridge.shared.snapshot(avatar: avatar, size: CGSize(width: 256, height: 256))
-        if let snap {
+        let snap = AvatarKitBridge.shared.snapshot(
+            avatar: avatar,
+            poseName: sticker.name,
+            animojiNamed: isAnimoji ? animojiName : nil,
+            size: CGSize(width: 320, height: 320)
+        )
+        if let snap = snap {
             self.loadedImage = snap
         }
     }

@@ -25,17 +25,21 @@ public enum StudioBackdrop: String, CaseIterable, Identifiable {
     
     public var id: String { rawValue }
     
-    public var backgroundColors: [Color] {
+    public var nsColors: [NSColor] {
         switch self {
         case .studio:
-            return [Color.accentColor.opacity(0.12), Color(nsColor: .windowBackgroundColor)]
+            return [NSColor.controlAccentColor.withAlphaComponent(0.22), NSColor.windowBackgroundColor]
         case .graphite:
-            return [Color(red: 0.15, green: 0.16, blue: 0.18), Color(red: 0.08, green: 0.09, blue: 0.10)]
+            return [NSColor(red: 0.18, green: 0.20, blue: 0.22, alpha: 1.0), NSColor(red: 0.08, green: 0.09, blue: 0.10, alpha: 1.0)]
         case .velvet:
-            return [Color.purple.opacity(0.18), Color(nsColor: .windowBackgroundColor)]
+            return [NSColor.systemPurple.withAlphaComponent(0.26), NSColor.windowBackgroundColor]
         case .neutral:
-            return [Color(nsColor: .controlBackgroundColor), Color(nsColor: .windowBackgroundColor)]
+            return [NSColor.controlBackgroundColor, NSColor.windowBackgroundColor]
         }
+    }
+    
+    public var backgroundColors: [Color] {
+        nsColors.map { Color(nsColor: $0) }
     }
 }
 
@@ -46,11 +50,13 @@ public struct AvatarDetailView: View {
     public let onRandomizeRequested: () -> Void
     public let onEditRequested: () -> Void
     
+    @StateObject private var stageController = StageViewController()
     @State private var displayMode: StageDisplayMode = .split
     @State private var activePoseName: String?
     @State private var stageHeight: CGFloat = 280
     @State private var backdrop: StudioBackdrop = .studio
     @State private var showCopiedAlert: Bool = false
+    @State private var copiedNotificationText: String = "Copied!"
     @State private var stageMutationId: UUID = UUID()
     
     public init(
@@ -152,15 +158,29 @@ public struct AvatarDetailView: View {
             .pickerStyle(.segmented)
             .frame(width: 320)
             
-            // Copy avatar snapshot button
-            Button(action: copyQuickAvatar) {
+            // Copy visual avatar snapshot button with dropdown menu
+            Menu {
+                Button {
+                    copyVisualAvatar(withBackdrop: false)
+                } label: {
+                    Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
+                }
+                
+                Button {
+                    copyVisualAvatar(withBackdrop: true)
+                } label: {
+                    Label("Copy with Studio Backdrop", systemImage: "photo")
+                }
+            } label: {
                 HStack(spacing: 5) {
                     Image(systemName: showCopiedAlert ? "checkmark" : "doc.on.doc")
                         .foregroundColor(showCopiedAlert ? .green : .primary)
-                    Text(showCopiedAlert ? "Copied!" : "Copy Avatar")
+                    Text(showCopiedAlert ? copiedNotificationText : "Copy Avatar")
                 }
+            } primaryAction: {
+                copyVisualAvatar(withBackdrop: false)
             }
-            .help("Quick copy avatar snapshot to clipboard (⌘C)")
+            .help("Copy avatar exactly as visually shown. Click arrow for options.")
             
             // Customize button for editable avatars
             if avatarItem.isEditable {
@@ -195,9 +215,31 @@ public struct AvatarDetailView: View {
                 isAnimoji: isAnimoji,
                 animojiName: animojiName,
                 clone: true,
-                mutationId: stageMutationId
+                mutationId: stageMutationId,
+                stageController: stageController
             )
             .padding(displayMode == .full3D ? 24 : 12)
+            .contextMenu {
+                Button {
+                    copyVisualAvatar(withBackdrop: false)
+                } label: {
+                    Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
+                }
+                
+                Button {
+                    copyVisualAvatar(withBackdrop: true)
+                } label: {
+                    Label("Copy with Studio Backdrop", systemImage: "photo")
+                }
+                
+                Divider()
+                
+                Button {
+                    resetCamera()
+                } label: {
+                    Label("Reset Camera Framing", systemImage: "arrow.counterclockwise")
+                }
+            }
             
             // Floating Stage Controls Overlay
             stageOverlayControls
@@ -275,6 +317,27 @@ public struct AvatarDetailView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Randomize Memoji appearance (⌘R)")
+                    
+                    // Quick Copy button in stage pill
+                    Menu {
+                        Button {
+                            copyVisualAvatar(withBackdrop: false)
+                        } label: {
+                            Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
+                        }
+                        
+                        Button {
+                            copyVisualAvatar(withBackdrop: true)
+                        } label: {
+                            Label("Copy with Studio Backdrop", systemImage: "photo")
+                        }
+                    } label: {
+                        Image(systemName: showCopiedAlert ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 11))
+                            .foregroundColor(showCopiedAlert ? .green : .primary)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .help("Copy avatar as visually shown")
                     
                     // Share button
                     Button(action: shareAvatar) {
@@ -436,18 +499,42 @@ public struct AvatarDetailView: View {
         AvatarDatabaseReader.shared.metadata(forStickerName: name).title
     }
     
-    private func copyQuickAvatar() {
-        guard let avatar = avatarObject else { return }
-        if let snap = AvatarKitBridge.shared.snapshot(avatar: avatar, size: CGSize(width: 512, height: 512), scale: 2.0) {
-            StickerExportManager.shared.copyToClipboard(image: snap)
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                showCopiedAlert = true
-            }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 1_400_000_000)
-                withAnimation {
-                    showCopiedAlert = false
-                }
+    private func copyVisualAvatar(withBackdrop: Bool = false) {
+        // 1. Capture snapshot directly from live 3D stage (captures exact angle, zoom, and active pose)
+        var visualImage: NSImage? = stageController.captureSnapshot()
+        
+        // 2. Fall back to on-demand posed renderer if stage snapshot isn't available
+        if visualImage == nil, let avatar = avatarObject {
+            visualImage = AvatarKitBridge.shared.snapshot(
+                avatar: avatar,
+                poseName: activePoseName,
+                animojiNamed: isAnimoji ? animojiName : nil,
+                size: CGSize(width: 1024, height: 1024)
+            )
+        }
+        
+        guard let originalImage = visualImage else { return }
+        
+        let finalImage: NSImage
+        if withBackdrop {
+            finalImage = StickerExportManager.shared.renderWithRadialBackdrop(
+                avatarImage: originalImage,
+                backdropColors: backdrop.nsColors
+            )
+        } else {
+            finalImage = originalImage
+        }
+        
+        StickerExportManager.shared.copyToClipboard(image: finalImage)
+        
+        copiedNotificationText = withBackdrop ? "Copied with Backdrop!" : "Copied Visual PNG!"
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            showCopiedAlert = true
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            withAnimation {
+                showCopiedAlert = false
             }
         }
     }
@@ -458,9 +545,17 @@ public struct AvatarDetailView: View {
     }
     
     private func shareAvatar() {
-        guard let avatar = avatarObject,
-              let snap = AvatarKitBridge.shared.snapshot(avatar: avatar, size: CGSize(width: 512, height: 512), scale: 2.0),
-              let tempURL = StickerExportManager.shared.createTemporaryFile(for: snap, filename: "\(avatarItem.displayName)_Avatar") else {
+        var visualImage: NSImage? = stageController.captureSnapshot()
+        if visualImage == nil, let avatar = avatarObject {
+            visualImage = AvatarKitBridge.shared.snapshot(
+                avatar: avatar,
+                poseName: activePoseName,
+                animojiNamed: isAnimoji ? animojiName : nil,
+                size: CGSize(width: 1024, height: 1024)
+            )
+        }
+        guard let snap = visualImage,
+              let tempURL = StickerExportManager.shared.createTemporaryFile(for: snap, filename: "\(avatarItem.displayName)_Visual") else {
             return
         }
         
