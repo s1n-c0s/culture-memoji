@@ -3,6 +3,7 @@ import AppKit
 
 public enum AvatarSourceType: Hashable, Sendable {
     case userMemoji(uuid: String)
+    case customMemoji(id: String)
     case builtinAnimoji(name: String)
     case randomMemoji(seed: UUID)
 }
@@ -20,6 +21,14 @@ public struct AvatarItem: Identifiable, Hashable {
     public var isUserMemoji: Bool {
         if case .userMemoji = sourceType { return true }
         return false
+    }
+    public var isCustomMemoji: Bool {
+        if case .customMemoji = sourceType { return true }
+        return false
+    }
+    public var isEditable: Bool {
+        if case .builtinAnimoji = sourceType { return false }
+        return true
     }
     
     public init(

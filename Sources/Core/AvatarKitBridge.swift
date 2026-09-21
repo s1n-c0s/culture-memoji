@@ -192,12 +192,20 @@ public final class AvatarKitBridge {
         return avatar
     }
     
-    /// Sets an avatar onto an AVTView or AVTRecordView, giving each view its own isolated clone
-    public func setAvatar(_ avatar: AnyObject?, on view: NSView) {
+    /// Sets an avatar onto an AVTView or AVTRecordView, optionally cloning it to give each view an isolated clone
+    public func setAvatar(_ avatar: AnyObject?, on view: NSView, clone: Bool = true) {
         let sel = NSSelectorFromString("setAvatar:")
         guard view.responds(to: sel) else { return }
-        let targetAvatar = avatar != nil ? cloneAvatar(avatar) : nil
+        let targetAvatar = (avatar != nil && clone) ? cloneAvatar(avatar) : avatar
         _ = (view as AnyObject).perform(sel, with: targetAvatar)
+    }
+    
+    /// Notifies an AVTView that its avatar's attributes changed so it triggers a visual redraw
+    public func notifyAvatarDidChange(on view: NSView) {
+        let sel = NSSelectorFromString("avatarDidChange")
+        if view.responds(to: sel) {
+            _ = (view as AnyObject).perform(sel)
+        }
     }
     
     /// Starts live camera face-tracking preview on an AVTRecordView

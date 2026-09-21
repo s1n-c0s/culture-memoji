@@ -22,6 +22,7 @@ public struct AvatarDetailView: View {
     public let avatarObject: AnyObject?
     public let stickers: [StickerItem]
     public let onRandomizeRequested: () -> Void
+    public let onEditRequested: () -> Void
     
     @State private var displayMode: StageDisplayMode = .split
     @State private var activePoseName: String?
@@ -32,12 +33,14 @@ public struct AvatarDetailView: View {
         avatarItem: AvatarItem,
         avatarObject: AnyObject?,
         stickers: [StickerItem],
-        onRandomizeRequested: @escaping () -> Void
+        onRandomizeRequested: @escaping () -> Void,
+        onEditRequested: @escaping () -> Void = {}
     ) {
         self.avatarItem = avatarItem
         self.avatarObject = avatarObject
         self.stickers = stickers
         self.onRandomizeRequested = onRandomizeRequested
+        self.onEditRequested = onEditRequested
     }
     
     public var isAnimoji: Bool {
@@ -91,6 +94,15 @@ public struct AvatarDetailView: View {
                     Label(showCopiedAlert ? "Copied!" : "Copy Avatar", systemImage: showCopiedAlert ? "checkmark" : "doc.on.doc")
                 }
                 .help("Quick copy avatar snapshot to clipboard")
+                
+                // Customize button for editable avatars
+                if avatarItem.isEditable {
+                    Button(action: onEditRequested) {
+                        Label("Customize", systemImage: "paintbrush.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .help("Customize hairstyles, skin tone, colors, glasses, and outfit")
+                }
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
@@ -298,6 +310,7 @@ public struct AvatarDetailView: View {
     
     private var badgeLabel: String {
         switch avatarItem.sourceType {
+        case .customMemoji: return "Custom Studio Memoji"
         case .userMemoji: return "Apple System Memoji"
         case .builtinAnimoji: return "Apple Animoji"
         case .randomMemoji: return "Custom Generated"
@@ -306,8 +319,9 @@ public struct AvatarDetailView: View {
     
     private var badgeColor: Color {
         switch avatarItem.sourceType {
+        case .customMemoji: return .purple
         case .userMemoji: return .blue
-        case .builtinAnimoji: return .purple
+        case .builtinAnimoji: return .indigo
         case .randomMemoji: return .orange
         }
     }

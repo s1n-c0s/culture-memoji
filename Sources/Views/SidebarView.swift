@@ -4,29 +4,112 @@ import AppKit
 public struct SidebarView: View {
     @Binding public var selectedAvatarId: String?
     public let userMemojis: [AvatarItem]
+    public let customMemojis: [AvatarItem]
     public let builtinAnimojis: [AvatarItem]
     public let randomMemojis: [AvatarItem]
+    public let onAddNewMemoji: () -> Void
+    public let onEditMemoji: (AvatarItem) -> Void
+    public let onDeleteCustomMemoji: (AvatarItem) -> Void
     public let onAddRandomMemoji: () -> Void
     public let onRefreshRequested: () -> Void
     
     public init(
         selectedAvatarId: Binding<String?>,
         userMemojis: [AvatarItem],
+        customMemojis: [AvatarItem] = [],
         builtinAnimojis: [AvatarItem],
         randomMemojis: [AvatarItem],
+        onAddNewMemoji: @escaping () -> Void,
+        onEditMemoji: @escaping (AvatarItem) -> Void,
+        onDeleteCustomMemoji: @escaping (AvatarItem) -> Void,
         onAddRandomMemoji: @escaping () -> Void,
         onRefreshRequested: @escaping () -> Void
     ) {
         self._selectedAvatarId = selectedAvatarId
         self.userMemojis = userMemojis
+        self.customMemojis = customMemojis
         self.builtinAnimojis = builtinAnimojis
         self.randomMemojis = randomMemojis
+        self.onAddNewMemoji = onAddNewMemoji
+        self.onEditMemoji = onEditMemoji
+        self.onDeleteCustomMemoji = onDeleteCustomMemoji
         self.onAddRandomMemoji = onAddRandomMemoji
         self.onRefreshRequested = onRefreshRequested
     }
     
     public var body: some View {
         List(selection: $selectedAvatarId) {
+            // Custom Studio Memojis Section
+            Section(header: HStack {
+                Label("Studio Memojis", systemImage: "sparkles")
+                    .font(.system(size: 11, weight: .bold))
+                Spacer()
+                Button(action: onAddNewMemoji) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+                .help("Create new custom Memoji")
+                
+                Text("\(customMemojis.count)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }) {
+                if customMemojis.isEmpty {
+                    Button(action: onAddNewMemoji) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 11))
+                            Text("Create your first Memoji...")
+                                .font(.caption)
+                        }
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    ForEach(customMemojis) { item in
+                        NavigationLink(value: item.id) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "person.crop.circle.badge.checkmark")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.purple)
+                                    .frame(width: 22, height: 22)
+                                    .background(Color.purple.opacity(0.12))
+                                    .clipShape(Circle())
+                                
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(item.displayName)
+                                        .font(.system(size: 12, weight: .medium))
+                                    Text("Custom Studio Memoji")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .contextMenu {
+                            Button {
+                                onEditMemoji(item)
+                            } label: {
+                                Label("Edit Memoji...", systemImage: "pencil")
+                            }
+                            
+                            Divider()
+                            
+                            Button(role: .destructive) {
+                                onDeleteCustomMemoji(item)
+                            } label: {
+                                Label("Delete Memoji", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            }
+            
             // User Memojis Section
             Section(header: HStack {
                 Label("My System Memojis", systemImage: "person.crop.circle.fill")
@@ -62,6 +145,13 @@ public struct SidebarView: View {
                             }
                             .padding(.vertical, 2)
                         }
+                        .contextMenu {
+                            Button {
+                                onEditMemoji(item)
+                            } label: {
+                                Label("Customize Memoji...", systemImage: "pencil")
+                            }
+                        }
                     }
                 }
             }
@@ -89,6 +179,13 @@ public struct SidebarView: View {
                                 }
                             }
                             .padding(.vertical, 2)
+                        }
+                        .contextMenu {
+                            Button {
+                                onEditMemoji(item)
+                            } label: {
+                                Label("Customize Memoji...", systemImage: "pencil")
+                            }
                         }
                     }
                 }
@@ -126,6 +223,13 @@ public struct SidebarView: View {
             // Quick Tools Section
             Section(header: Label("Tools & System", systemImage: "wrench.and.screwdriver.fill")
                 .font(.system(size: 11, weight: .bold))) {
+                Button(action: onAddNewMemoji) {
+                    Label("New Memoji Studio...", systemImage: "paintbrush.fill")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 2)
+                
                 Button(action: onAddRandomMemoji) {
                     Label("Create Random Memoji", systemImage: "plus.circle.fill")
                         .font(.system(size: 12))

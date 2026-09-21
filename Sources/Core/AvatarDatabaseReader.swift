@@ -7,15 +7,146 @@ public final class AvatarDatabaseReader: Sendable {
     
     private let dbPath: String
     private let stickersDirectoryPath: String
+    private let customAvatarsDirectoryPath: String
     
     public init() {
         let home = NSHomeDirectory()
         self.dbPath = (home as NSString).appendingPathComponent("Library/Application Support/Animoji/CoreDataBackend/avatars.db")
         self.stickersDirectoryPath = (home as NSString).appendingPathComponent("Library/Application Support/Animoji/Stickers")
+        self.customAvatarsDirectoryPath = (home as NSString).appendingPathComponent("Library/Application Support/CultureMemoji/CustomAvatars")
+        
+        // Ensure custom avatars directory exists
+        try? FileManager.default.createDirectory(atPath: customAvatarsDirectoryPath, withIntermediateDirectories: true)
     }
     
     public var hasUserMemojis: Bool {
         return FileManager.default.fileExists(atPath: dbPath)
+    }
+    
+    // MARK: - Custom Memojis (Culture Memoji Storage)
+    
+    /// Reads all locally created custom Memojis
+    public func fetchCustomAvatars() -> [AvatarItem] {
+        guard FileManager.default.fileExists(atPath: customAvatarsDirectoryPath) else {
+            return []
+        }
+        
+        let fileManager = FileManager.default
+        guard let files = try? fileManager.contentsOfDirectory(atPath: customAvatarsDirectoryPath) else {
+            return []
+        }
+        
+        var items: [AvatarItem] = []
+        for file in files where file.hasSuffix(".json") {
+            let path = (customAvatarsDirectoryPath as NSString).appendingPathComponent(file)
+            guard let fileData = try? Data(contentsOf: URL(fileURLWithPath: path)),
+                  let json = try? JSONSerialization.jsonObject(with: fileData) as? [String: Any],
+                  let id = json["id"] as? String,
+                  let name = json["name"] as? String else {
+                continue
+            }
+            
+            var avatarData: Data?
+            if let base64Str = json["avatarDataBase64"] as? String {
+                avatarData = Data(base64Encoded: base64Str)
+            } else if let rawString = json["avatarData"] as? String {
+                avatarData = Data(rawString.utf8)
+            }
+            
+            let item = AvatarItem(
+                id: id,
+                displayName: name,
+                sourceType: .customMemoji(id: id),
+                rawData: avatarData,
+                cachedStickerCount: 0
+            )
+            items.append(item)
+        }
+        
+        items.sort { $0.displayName < $1.displayName }
+        return items
+    }
+    
+    /// Saves a custom Memoji to persistent disk storage
+    @discardableResult
+    public func saveCustomMemoji(name: String, data: Data, existingId: String? = nil) -> AvatarItem {
+        try? FileManager.default.createDirectory(atPath: customAvatarsDirectoryPath, withIntermediateDirectories: true)
+        
+        let id: String
+        if let existing = existingId, !existing.isEmpty {
+            id = existing
+        } else {
+            id = "custom_\(UUID().uuidString)"
+        }
+        
+        let filePath = (customAvatarsDirectoryPath as NSString).appendingPathComponent("\(id).json")
+        let base64 = data.base64EncodedString()
+        let rawString = String(data: data, encoding: .utf8) ?? ""
+        
+        let payload: [String: Any] = [
+            "id": id,
+            "name": name,
+            "updatedAt": Date().timeIntervalSince1970,
+            "avatarDataBase64": base64,
+            "avatarData": rawString
+        ]
+        
+        if let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted) {
+            try? jsonData.write(to: URL(fileURLWithPath: filePath))
+        }
+        
+        return AvatarItem(
+            id: id,
+            displayName: name,
+            sourceType: .customMemoji(id: id),
+            rawData: data,
+            cachedStickerCount: 0
+        )
+    }
+    
+    /// Deletes a custom Memoji from persistent disk storage
+    public func deleteCustomMemoji(id: String) -> Bool {
+        let filePath = (customAvatarsDirectoryPath as NSString).appendingPathComponent("\(id).json")
+        guard FileManager.default.fileExists(atPath: filePath) else { return false }
+        do {
+            try FileManager.default.removeItem(atPath: filePath)
+            return true
+        } catch {
+            return false
+        }
+    }
+    
+    /// Updates an existing system Memoji in Apple's CoreData avatars.db
+    public func updateUserMemojiInSystemDatabase(uuid: String, data: Data) -> Bool {
+        guard FileManager.default.fileExists(atPath: dbPath) else { return false }
+        
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_close(db) }
+        
+        let query = "UPDATE ZAVATAR SET ZAVATARDATA = ? WHERE hex(ZIDENTIFIER) = ? OR Z_PK = ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+        
+        let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_bind_blob(stmt, 1, (data as NSData).bytes, Int32(data.count), SQLITE_TRANSIENT)
+        
+        let cleanHex = uuid.replacingOccurrences(of: "-", with: "").uppercased()
+        sqlite3_bind_text(stmt, 2, (cleanHex as NSString).utf8String, -1, SQLITE_TRANSIENT)
+        
+        var pk = 0
+        if uuid.hasPrefix("Avatar-"), let parsedPk = Int(uuid.replacingOccurrences(of: "Avatar-", with: "")) {
+            pk = parsedPk
+        }
+        sqlite3_bind_int(stmt, 3, Int32(pk))
+        
+        let stepResult = sqlite3_step(stmt)
+        return stepResult == SQLITE_DONE && sqlite3_changes(db) > 0
     }
     
     /// Reads all user-created Memojis stored in Apple's Animoji SQLite CoreData database

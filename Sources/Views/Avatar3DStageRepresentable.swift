@@ -7,17 +7,23 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     public let activePoseName: String?
     public let isAnimoji: Bool
     public let animojiName: String?
+    public let clone: Bool
+    public let mutationId: UUID?
     
     public init(
         avatar: AnyObject?,
         activePoseName: String? = nil,
         isAnimoji: Bool = false,
-        animojiName: String? = nil
+        animojiName: String? = nil,
+        clone: Bool = true,
+        mutationId: UUID? = nil
     ) {
         self.avatar = avatar
         self.activePoseName = activePoseName
         self.isAnimoji = isAnimoji
         self.animojiName = animojiName
+        self.clone = clone
+        self.mutationId = mutationId
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -31,8 +37,13 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
         container.autoresizesSubviews = true
         
-        guard let avtView = AvatarKitBridge.shared.createAVTView(frame: container.bounds, avatar: avatar) else {
+        guard let avtView = AvatarKitBridge.shared.createAVTView(frame: container.bounds, avatar: nil) else {
             return container
+        }
+        
+        // Set avatar with clone flag
+        if let avatar = avatar {
+            AvatarKitBridge.shared.setAvatar(avatar, on: avtView, clone: clone)
         }
         
         // autoresizingMask keeps AVTView filling its container across resize events
@@ -42,6 +53,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         context.coordinator.avtView = avtView
         context.coordinator.currentAvatar = avatar
         context.coordinator.currentPose = activePoseName
+        context.coordinator.lastMutationId = mutationId
         
         // Apply initial pose after one runloop pass to allow the Metal scene to load
         if let pose = activePoseName {
@@ -69,7 +81,13 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         // Update avatar only when the actual object reference changes
         if context.coordinator.currentAvatar !== avatar {
             context.coordinator.currentAvatar = avatar
-            AvatarKitBridge.shared.setAvatar(avatar, on: avtView)
+            AvatarKitBridge.shared.setAvatar(avatar, on: avtView, clone: clone)
+        }
+        
+        // Trigger visual redraw if mutationId changed (e.g. preset or color edited)
+        if let mid = mutationId, context.coordinator.lastMutationId != mid {
+            context.coordinator.lastMutationId = mid
+            AvatarKitBridge.shared.notifyAvatarDidChange(on: avtView)
         }
         
         // Update pose when changed (including nil = clear back to neutral)
@@ -100,6 +118,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         var avtView: NSView?
         var currentAvatar: AnyObject?
         var currentPose: String?
+        var lastMutationId: UUID?
     }
 }
 
