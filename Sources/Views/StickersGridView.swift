@@ -162,14 +162,18 @@ public struct StickersGridView: View {
         guard !stickers.isEmpty else { return }
         isBatchExporting = true
         
-        // Prepare images
+        // Prepare images from disk cache or skip (don't block with live renders for batch)
         var exportList: [(name: String, image: NSImage)] = []
         for sticker in stickers {
             if let url = sticker.localFileURL, let img = NSImage(contentsOf: url) {
                 exportList.append((sticker.name, img))
-            } else if let avatar = avatar, let snap = AvatarKitBridge.shared.snapshot(avatar: avatar, size: CGSize(width: 512, height: 512)) {
-                exportList.append((sticker.name, snap))
             }
+            // Skip stickers without cached PNG to avoid blocking — user can export individually
+        }
+        
+        guard !exportList.isEmpty else {
+            isBatchExporting = false
+            return
         }
         
         StickerExportManager.shared.batchExport(
@@ -177,11 +181,11 @@ public struct StickersGridView: View {
             targetSize: 512,
             background: .transparent,
             format: .png
-        ) { count in
-            self.isBatchExporting = false
-            self.batchExportCount = count
+        ) { @MainActor count in
+            isBatchExporting = false
+            batchExportCount = count
             if count > 0 {
-                self.showBatchExportAlert = true
+                showBatchExportAlert = true
             }
         }
     }

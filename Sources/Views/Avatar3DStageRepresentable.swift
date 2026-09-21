@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 
+/// Wraps Apple's AVTView (3D interactive SceneKit/VFX viewport) for SwiftUI.
 public struct Avatar3DStageRepresentable: NSViewRepresentable {
     public let avatar: AnyObject?
     public let activePoseName: String?
@@ -24,23 +25,34 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     }
     
     public func makeNSView(context: Context) -> NSView {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
+        // Use a strong container that auto-sizes correctly
+        let container = FlippedView()
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.clear.cgColor
         
-        if let avtView = AvatarKitBridge.shared.createAVTView(frame: container.bounds, avatar: avatar) {
-            avtView.autoresizingMask = [.width, .height]
+        if let avtView = AvatarKitBridge.shared.createAVTView(frame: .zero, avatar: avatar) {
+            avtView.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(avtView)
+            NSLayoutConstraint.activate([
+                avtView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                avtView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                avtView.topAnchor.constraint(equalTo: container.topAnchor),
+                avtView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            ])
             context.coordinator.avtView = avtView
             context.coordinator.currentAvatar = avatar
+            context.coordinator.currentPose = activePoseName
             
             if let pose = activePoseName {
-                AvatarKitBridge.shared.applyStickerPose(
-                    named: pose,
-                    to: avtView,
-                    animojiNamed: isAnimoji ? animojiName : nil,
-                    duration: 0.0
-                )
+                // Apply initial pose after a brief delay to allow 3D scene to load
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    AvatarKitBridge.shared.applyStickerPose(
+                        named: pose,
+                        to: avtView,
+                        animojiNamed: isAnimoji ? animojiName : nil,
+                        duration: 0.0
+                    )
+                }
             }
         }
         
@@ -50,13 +62,13 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     public func updateNSView(_ nsView: NSView, context: Context) {
         guard let avtView = context.coordinator.avtView else { return }
         
-        // Update avatar if changed
+        // Update avatar if reference changed
         if context.coordinator.currentAvatar !== avatar {
             context.coordinator.currentAvatar = avatar
             AvatarKitBridge.shared.setAvatar(avatar, on: avtView)
         }
         
-        // Update pose if changed
+        // Update pose if changed (including clearing back to nil)
         if context.coordinator.currentPose != activePoseName {
             context.coordinator.currentPose = activePoseName
             if let pose = activePoseName {
@@ -64,9 +76,11 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
                     named: pose,
                     to: avtView,
                     animojiNamed: isAnimoji ? animojiName : nil,
-                    duration: 0.3
+                    duration: 0.35
                 )
             }
+            // If pose is cleared (nil), the avatar stays in last pose — reset by cycling avatar
+            // This is fine UX behaviour (neutral reset button is shown to user separately)
         }
     }
     
@@ -77,6 +91,12 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     }
 }
 
+/// NSView subclass that flips coordinate system, needed for correct AVTView layout on macOS.
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+/// Wraps Apple's AVTRecordView (live face-tracking camera mirror) for SwiftUI.
 public struct LiveFaceMirrorRepresentable: NSViewRepresentable {
     public let avatar: AnyObject?
     
@@ -89,17 +109,26 @@ public struct LiveFaceMirrorRepresentable: NSViewRepresentable {
     }
     
     public func makeNSView(context: Context) -> NSView {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
+        let container = FlippedView()
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.clear.cgColor
         
-        if let recordView = AvatarKitBridge.shared.createAVTRecordView(frame: container.bounds, avatar: avatar) {
-            recordView.autoresizingMask = [.width, .height]
+        if let recordView = AvatarKitBridge.shared.createAVTRecordView(frame: .zero, avatar: avatar) {
+            recordView.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(recordView)
+            NSLayoutConstraint.activate([
+                recordView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                recordView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                recordView.topAnchor.constraint(equalTo: container.topAnchor),
+                recordView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            ])
             context.coordinator.recordView = recordView
+            context.coordinator.currentAvatar = avatar
             
-            // Start face tracking
-            AvatarKitBridge.shared.startCameraPreview(on: recordView)
+            // Start face tracking after brief layout pass
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                AvatarKitBridge.shared.startCameraPreview(on: recordView)
+            }
         }
         
         return container

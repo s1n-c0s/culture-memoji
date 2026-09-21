@@ -1,6 +1,5 @@
 import Foundation
 import AppKit
-import SwiftUI
 
 public enum ExportFormat: String, CaseIterable, Identifiable {
     case png = "PNG (Transparent)"
@@ -69,11 +68,8 @@ public final class StickerExportManager {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         
-        // Write TIFF representation
         if let tiffData = image.tiffRepresentation {
             pasteboard.setData(tiffData, forType: .tiff)
-            
-            // Write PNG representation for apps that prefer PNG (Slack, Chrome, Discord, etc.)
             if let rep = NSBitmapImageRep(data: tiffData),
                let pngData = rep.representation(using: .png, properties: [:]) {
                 pasteboard.setData(pngData, forType: .png)
@@ -94,19 +90,17 @@ public final class StickerExportManager {
         newImage.lockFocus()
         let rect = NSRect(origin: .zero, size: finalSize)
         
-        // Draw background
         if !background.colors.isEmpty {
             if background.colors.count == 1 {
                 background.colors[0].setFill()
                 rect.fill()
-            } else if background.colors.count > 1 {
+            } else {
                 let gradient = NSGradient(colors: background.colors)
                 gradient?.draw(in: rect, angle: 45.0)
             }
         }
         
-        // Draw centered sticker
-        // Add 10% padding if on colored background for aesthetic margins
+        // Center sticker with padding on colored backgrounds
         let padding: CGFloat = background == .transparent ? 0 : targetSize * 0.08
         let drawRect = NSRect(
             x: padding,
@@ -134,7 +128,7 @@ public final class StickerExportManager {
         }
     }
     
-    /// Prompts user with NSSavePanel to save image file
+    /// Prompts user with NSSavePanel to save image file — must be called on main thread
     public func saveWithDialog(
         image: NSImage,
         defaultFileName: String,
@@ -153,7 +147,11 @@ public final class StickerExportManager {
         
         let savePanel = NSSavePanel()
         savePanel.canCreateDirectories = true
-        savePanel.allowedContentTypes = format == .png ? [.png] : [.jpeg]
+        if format == .png {
+            savePanel.allowedContentTypes = [.png]
+        } else {
+            savePanel.allowedContentTypes = [.jpeg]
+        }
         savePanel.nameFieldStringValue = "\(defaultFileName).\(format.fileExtension)"
         
         savePanel.begin { response in
@@ -163,27 +161,31 @@ public final class StickerExportManager {
         }
     }
     
-    /// Creates a temporary file URL for drag & drop operations
+    /// Creates a temporary file URL for drag & drop operations — must be called on main thread
     public func createTemporaryFile(for image: NSImage, filename: String) -> URL? {
         guard let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else { return nil }
         
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("MemojiDrag", isDirectory: true)
+        // Sanitize filename to avoid path separator issues
+        let safe = filename.replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MemojiDrag", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         
-        let fileURL = tempDir.appendingPathComponent("\(filename).png")
+        let fileURL = tempDir.appendingPathComponent("\(safe).png")
         try? png.write(to: fileURL)
         return fileURL
     }
     
-    /// Batch exports a collection of stickers to a selected directory
+    /// Batch exports a collection of stickers to a folder chosen by user — must be called on main thread
     public func batchExport(
         stickers: [(name: String, image: NSImage)],
         targetSize: CGFloat,
         background: ExportBackground,
         format: ExportFormat,
-        completion: @escaping (Int) -> Void
+        completion: @escaping @MainActor (Int) -> Void
     ) {
         let openPanel = NSOpenPanel()
         openPanel.canChooseFiles = false
@@ -193,11 +195,16 @@ public final class StickerExportManager {
         
         openPanel.begin { response in
             guard response == .OK, let targetFolder = openPanel.url else {
-                completion(0)
+                Task { @MainActor in completion(0) }
                 return
             }
             
-            var count = 0
+            // Capture all needed values as Sendable types before leaving main actor
+            let targetFolderCopy = targetFolder
+            let fileExtension = format.fileExtension
+            
+            // Render all images on main actor synchronously, then write on background
+            var renderedFiles: [(name: String, data: Data)] = []
             for item in stickers {
                 let processed = self.renderProcessedImage(
                     original: item.image,
@@ -206,14 +213,25 @@ public final class StickerExportManager {
                     format: format
                 )
                 if let data = self.imageData(for: processed, format: format) {
-                    let sanitizedName = item.name.replacingOccurrences(of: "/", with: "-")
-                    let fileURL = targetFolder.appendingPathComponent("\(sanitizedName).\(format.fileExtension)")
-                    if (try? data.write(to: fileURL)) != nil {
+                    renderedFiles.append((item.name, data))
+                }
+            }
+            
+            // Write files off main thread
+            let fileExtCopy = fileExtension
+            Task.detached(priority: .utility) {
+                var count = 0
+                for file in renderedFiles {
+                    let safe = file.name.replacingOccurrences(of: "/", with: "-")
+                    let fileURL = targetFolderCopy.appendingPathComponent("\(safe).\(fileExtCopy)")
+                    if (try? file.data.write(to: fileURL)) != nil {
                         count += 1
                     }
                 }
+                await MainActor.run {
+                    completion(count)
+                }
             }
-            completion(count)
         }
     }
 }

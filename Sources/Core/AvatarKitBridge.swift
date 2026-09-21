@@ -51,7 +51,6 @@ public final class AvatarKitBridge {
     public func loadAvatar(fromData data: Data) -> AnyObject? {
         guard let cls = avtAvatarClass else { return nil }
         let sel = NSSelectorFromString("avatarWithDataRepresentation:error:")
-        guard (cls as AnyObject).responds(to: sel) else { return nil }
         
         typealias InitFunc = @convention(c) (AnyObject, Selector, AnyObject, UnsafeMutablePointer<NSError?>?) -> AnyObject?
         guard let method = class_getClassMethod(cls, sel) else { return nil }
@@ -64,7 +63,6 @@ public final class AvatarKitBridge {
     public func loadNeutralMemoji() -> AnyObject? {
         guard let cls = avtMemojiClass else { return nil }
         let sel = NSSelectorFromString("neutralMemoji")
-        guard (cls as AnyObject).responds(to: sel) else { return nil }
         
         typealias NeutralFunc = @convention(c) (AnyObject, Selector) -> AnyObject?
         guard let method = class_getClassMethod(cls, sel) else { return nil }
@@ -95,7 +93,6 @@ public final class AvatarKitBridge {
     public func animojiNames() -> [String] {
         guard let cls = avtAnimojiClass else { return [] }
         let sel = NSSelectorFromString("animojiNames")
-        guard (cls as AnyObject).responds(to: sel) else { return [] }
         
         typealias NamesFunc = @convention(c) (AnyObject, Selector) -> [String]?
         guard let method = class_getClassMethod(cls, sel) else { return [] }
@@ -107,7 +104,6 @@ public final class AvatarKitBridge {
     public func loadAnimoji(named name: String) -> AnyObject? {
         guard let cls = avtAnimojiClass else { return nil }
         let sel = NSSelectorFromString("animojiNamed:")
-        guard (cls as AnyObject).responds(to: sel) else { return nil }
         
         typealias AnimojiFunc = @convention(c) (AnyObject, Selector, NSString) -> AnyObject?
         guard let method = class_getClassMethod(cls, sel) else { return nil }
@@ -119,7 +115,6 @@ public final class AvatarKitBridge {
     public func animojiThumbnail(named name: String) -> NSImage? {
         guard let cls = avtAnimojiClass else { return nil }
         let sel = NSSelectorFromString("thumbnailForAnimojiNamed:options:")
-        guard (cls as AnyObject).responds(to: sel) else { return nil }
         
         typealias ThumbFunc = @convention(c) (AnyObject, Selector, NSString, AnyObject?) -> AnyObject?
         guard let method = class_getClassMethod(cls, sel) else { return nil }
@@ -133,20 +128,22 @@ public final class AvatarKitBridge {
     public func createAVTView(frame: NSRect, avatar: AnyObject? = nil) -> NSView? {
         guard let viewCls = avtViewClass as? NSView.Type else { return nil }
         let view = viewCls.init(frame: frame)
-        view.setValue(NSColor.clear, forKey: "backgroundColor")
+        
+        // Use layer-level clear background to avoid key-value crash
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.clear.cgColor
         
         if let avatar = avatar {
             setAvatar(avatar, on: view)
         }
         
-        // Continuous rendering for smooth interactive movements and animations
+        // Enable continuous rendering for smooth physics and animations
         let contSel = NSSelectorFromString("setRendersContinuously:")
-        if view.responds(to: contSel) {
+        if view.responds(to: contSel),
+           let method = class_getInstanceMethod(type(of: view), contSel) {
             typealias BoolFunc = @convention(c) (AnyObject, Selector, Bool) -> Void
-            if let method = class_getInstanceMethod(viewCls, contSel) {
-                let callable = unsafeBitCast(method_getImplementation(method), to: BoolFunc.self)
-                callable(view, contSel, true)
-            }
+            let callable = unsafeBitCast(method_getImplementation(method), to: BoolFunc.self)
+            callable(view, contSel, true)
         }
         
         return view
@@ -156,7 +153,9 @@ public final class AvatarKitBridge {
     public func createAVTRecordView(frame: NSRect, avatar: AnyObject? = nil) -> NSView? {
         guard let viewCls = avtRecordViewClass as? NSView.Type else { return nil }
         let view = viewCls.init(frame: frame)
-        view.setValue(NSColor.clear, forKey: "backgroundColor")
+        
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.clear.cgColor
         
         if let avatar = avatar {
             setAvatar(avatar, on: view)
@@ -196,14 +195,12 @@ public final class AvatarKitBridge {
         
         if let animojiName = name {
             let sel = NSSelectorFromString("availableStickerNamesForAnimojiNamed:inStickerPack:")
-            guard (cls as AnyObject).responds(to: sel) else { return [] }
             typealias Func = @convention(c) (AnyObject, Selector, NSString, NSString) -> [String]?
             guard let method = class_getClassMethod(cls, sel) else { return [] }
             let callable = unsafeBitCast(method_getImplementation(method), to: Func.self)
             return callable(cls as AnyObject, sel, animojiName as NSString, "stickers" as NSString) ?? []
         } else {
             let sel = NSSelectorFromString("availableStickerNamesForMemojiInStickerPack:")
-            guard (cls as AnyObject).responds(to: sel) else { return [] }
             typealias Func = @convention(c) (AnyObject, Selector, NSString) -> [String]?
             guard let method = class_getClassMethod(cls, sel) else { return [] }
             let callable = unsafeBitCast(method_getImplementation(method), to: Func.self)
@@ -211,39 +208,45 @@ public final class AvatarKitBridge {
         }
     }
     
-    /// Loads a specific sticker configuration
+    /// Loads a specific sticker configuration — returns nil safely if not found
     public func stickerConfiguration(named stickerName: String, animojiNamed: String? = nil) -> AnyObject? {
         guard let cls = avtStickerConfigurationClass else { return nil }
         
+        let cfg: AnyObject?
+        
         if let animoji = animojiNamed {
             let sel = NSSelectorFromString("stickerConfigurationForAnimojiNamed:inStickerPack:stickerName:")
-            guard (cls as AnyObject).responds(to: sel) else { return nil }
             typealias Func = @convention(c) (AnyObject, Selector, NSString, NSString, NSString) -> AnyObject?
             guard let method = class_getClassMethod(cls, sel) else { return nil }
             let callable = unsafeBitCast(method_getImplementation(method), to: Func.self)
-            let cfg = callable(cls as AnyObject, sel, animoji as NSString, "stickers" as NSString, stickerName as NSString)
-            _ = (cfg as AnyObject).perform(NSSelectorFromString("loadIfNeeded"))
-            return cfg
+            cfg = callable(cls as AnyObject, sel, animoji as NSString, "stickers" as NSString, stickerName as NSString)
         } else {
             let sel = NSSelectorFromString("stickerConfigurationForMemojiInStickerPack:stickerName:")
-            guard (cls as AnyObject).responds(to: sel) else { return nil }
             typealias Func = @convention(c) (AnyObject, Selector, NSString, NSString) -> AnyObject?
             guard let method = class_getClassMethod(cls, sel) else { return nil }
             let callable = unsafeBitCast(method_getImplementation(method), to: Func.self)
-            let cfg = callable(cls as AnyObject, sel, "stickers" as NSString, stickerName as NSString)
-            _ = (cfg as AnyObject).perform(NSSelectorFromString("loadIfNeeded"))
-            return cfg
+            cfg = callable(cls as AnyObject, sel, "stickers" as NSString, stickerName as NSString)
         }
+        
+        // Only call loadIfNeeded if we actually got a config object
+        if let validCfg = cfg {
+            let loadSel = NSSelectorFromString("loadIfNeeded")
+            if (validCfg as AnyObject).responds(to: loadSel) {
+                _ = (validCfg as AnyObject).perform(loadSel)
+            }
+        }
+        
+        return cfg
     }
     
     /// Smoothly transitions the 3D AVTView to a given sticker pose/expression
     public func applyStickerPose(named stickerName: String, to view: NSView, animojiNamed: String? = nil, duration: Double = 0.25) {
         guard let cfg = stickerConfiguration(named: stickerName, animojiNamed: animojiNamed) else { return }
         let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")
-        guard view.responds(to: transSel) else { return }
+        guard view.responds(to: transSel),
+              let method = class_getInstanceMethod(type(of: view), transSel) else { return }
         
         typealias TransFunc = @convention(c) (AnyObject, Selector, AnyObject, Double, (@convention(block) () -> Void)?) -> Void
-        guard let method = class_getInstanceMethod(type(of: view), transSel) else { return }
         let callable = unsafeBitCast(method_getImplementation(method), to: TransFunc.self)
         callable(view, transSel, cfg, duration, nil)
     }
@@ -253,10 +256,10 @@ public final class AvatarKitBridge {
     /// Snapshots an avatar directly at a specified size and retina scale
     public func snapshot(avatar: AnyObject, size: CGSize, scale: CGFloat = 2.0) -> NSImage? {
         let sel = NSSelectorFromString("snapshotWithSize:scale:options:")
-        guard avatar.responds(to: sel) else { return nil }
+        guard avatar.responds(to: sel),
+              let method = class_getInstanceMethod(type(of: avatar), sel) else { return nil }
         
         typealias SnapFunc = @convention(c) (AnyObject, Selector, CGSize, CGFloat, AnyObject?) -> AnyObject?
-        guard let method = class_getInstanceMethod(type(of: avatar), sel) else { return nil }
         let callable = unsafeBitCast(method_getImplementation(method), to: SnapFunc.self)
         return callable(avatar, sel, size, scale, nil) as? NSImage
     }
@@ -264,10 +267,10 @@ public final class AvatarKitBridge {
     /// Snapshots the current 3D AVTView state
     public func snapshot(view: NSView, size: CGSize) -> NSImage? {
         let sel = NSSelectorFromString("snapshotWithSize:")
-        guard view.responds(to: sel) else { return nil }
+        guard view.responds(to: sel),
+              let method = class_getInstanceMethod(type(of: view), sel) else { return nil }
         
         typealias SnapFunc = @convention(c) (AnyObject, Selector, CGSize) -> AnyObject?
-        guard let method = class_getInstanceMethod(type(of: view), sel) else { return nil }
         let callable = unsafeBitCast(method_getImplementation(method), to: SnapFunc.self)
         return callable(view, sel, size) as? NSImage
     }

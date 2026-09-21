@@ -105,7 +105,7 @@ public struct StickerCellView: View {
                             .buttonStyle(.plain)
                             .help("Copy transparent PNG to clipboard")
                             
-                            // Export button
+                            // Export button — only enabled when image is loaded
                             Button(action: {
                                 if let img = loadedImage {
                                     onExportRequest(sticker, img)
@@ -118,6 +118,7 @@ public struct StickerCellView: View {
                                     .clipShape(Circle())
                             }
                             .buttonStyle(.plain)
+                            .disabled(loadedImage == nil)
                             .help("Custom export (PNG/JPEG/Background)")
                         }
                         .padding(.bottom, 8)
@@ -130,13 +131,16 @@ public struct StickerCellView: View {
                     isHovered = hovering
                 }
             }
-            // Drag and Drop support
+            // Drag and Drop — only when image is actually loaded
             .onDrag {
-                guard let img = loadedImage,
-                      let tempURL = StickerExportManager.shared.createTemporaryFile(for: img, filename: sticker.name) else {
+                guard let img = loadedImage else {
                     return NSItemProvider()
                 }
-                return NSItemProvider(contentsOf: tempURL) ?? NSItemProvider()
+                // Create temp file synchronously on main thread
+                if let tempURL = StickerExportManager.shared.createTemporaryFile(for: img, filename: sticker.name) {
+                    return NSItemProvider(contentsOf: tempURL) ?? NSItemProvider()
+                }
+                return NSItemProvider()
             }
             
             // Title & Emoji
@@ -156,28 +160,25 @@ public struct StickerCellView: View {
             }
         }
         .task(id: sticker.id) {
-            loadImage()
+            await loadImage()
         }
     }
     
-    private func loadImage() {
+    /// Load image: prefer disk-cached PNG, fall back to live snapshot from AvatarKit.
+    @MainActor
+    private func loadImage() async {
+        // 1. Try on-disk pre-rendered sticker PNG (fast path, no AvatarKit needed)
         if let fileURL = sticker.localFileURL,
            let image = NSImage(contentsOf: fileURL) {
             self.loadedImage = image
             return
         }
         
-        // Dynamically render snapshot if no local file
-        Task.detached(priority: .userInitiated) {
-            // Render on main actor
-            await MainActor.run {
-                if let avatar = avatar {
-                    // Try snapshot with pose or default snapshot
-                    if let snap = AvatarKitBridge.shared.snapshot(avatar: avatar, size: CGSize(width: 256, height: 256)) {
-                        self.loadedImage = snap
-                    }
-                }
-            }
+        // 2. Fall back: render a live snapshot via AvatarKit (on main actor, safe)
+        guard let avatar = avatar else { return }
+        let snap = AvatarKitBridge.shared.snapshot(avatar: avatar, size: CGSize(width: 256, height: 256))
+        if let snap {
+            self.loadedImage = snap
         }
     }
     
@@ -187,7 +188,8 @@ public struct StickerCellView: View {
         withAnimation {
             showCopiedAlert = true
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
             withAnimation {
                 showCopiedAlert = false
             }

@@ -15,12 +15,14 @@ public struct ContentView: View {
     public init() {}
     
     public var selectedAvatarItem: AvatarItem? {
-        if let id = selectedAvatarId {
-            if let item = userMemojis.first(where: { $0.id == id }) { return item }
-            if let item = randomMemojis.first(where: { $0.id == id }) { return item }
-            if let item = builtinAnimojis.first(where: { $0.id == id }) { return item }
+        guard let id = selectedAvatarId else {
+            return userMemojis.first ?? builtinAnimojis.first
         }
-        return userMemojis.first ?? builtinAnimojis.first
+        return userMemojis.first(where: { $0.id == id })
+            ?? randomMemojis.first(where: { $0.id == id })
+            ?? builtinAnimojis.first(where: { $0.id == id })
+            ?? userMemojis.first
+            ?? builtinAnimojis.first
     }
     
     public var body: some View {
@@ -35,7 +37,15 @@ public struct ContentView: View {
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
         } detail: {
-            if let current = selectedAvatarItem {
+            if isLoading {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Loading Apple Memoji system...")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let current = selectedAvatarItem {
                 AvatarDetailView(
                     avatarItem: current,
                     avatarObject: avatarObjects[current.id],
@@ -46,17 +56,26 @@ public struct ContentView: View {
                 )
                 .id(current.id)
             } else {
-                VStack(spacing: 12) {
-                    ProgressView()
-                    Text("Loading Apple Memoji system...")
+                VStack(spacing: 16) {
+                    Image(systemName: "person.crop.circle.badge.questionmark")
+                        .font(.system(size: 48))
+                        .foregroundColor(.secondary)
+                    Text("No Memoji Selected")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                    Text("Select a Memoji from the sidebar, or create a random one.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
+                    Button("Create Random Memoji") {
+                        addRandomMemoji()
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task {
-            loadInitialData()
+            await loadInitialData()
         }
         .onChange(of: selectedAvatarId) { _, newId in
             if let id = newId {
@@ -67,7 +86,8 @@ public struct ContentView: View {
     
     // MARK: - Data Loading
     
-    private func loadInitialData() {
+    @MainActor
+    private func loadInitialData() async {
         isLoading = true
         
         // 1. User Memojis from Apple SQLite database
@@ -84,32 +104,39 @@ public struct ContentView: View {
             )
         }
         
-        // Select first available avatar
+        // Select first available avatar if nothing selected yet
         if selectedAvatarId == nil {
             selectedAvatarId = dbUsers.first?.id ?? builtinAnimojis.first?.id
         }
         
+        isLoading = false
+        
+        // Load avatar data for the selected avatar
         if let firstId = selectedAvatarId {
             ensureAvatarLoaded(forId: firstId)
         }
-        
-        isLoading = false
     }
     
+    @MainActor
     private func reloadData() {
         let currentId = selectedAvatarId
-        loadInitialData()
-        if let id = currentId {
-            selectedAvatarId = id
-            ensureAvatarLoaded(forId: id)
+        // Clear caches to force a fresh load
+        avatarObjects.removeAll()
+        avatarStickers.removeAll()
+        Task {
+            await loadInitialData()
+            if let id = currentId, !id.isEmpty {
+                selectedAvatarId = id
+                ensureAvatarLoaded(forId: id)
+            }
         }
     }
     
+    @MainActor
     private func ensureAvatarLoaded(forId id: String) {
-        // Find item
-        guard let item = userMemojis.first(where: { $0.id == id }) ??
-                        randomMemojis.first(where: { $0.id == id }) ??
-                        builtinAnimojis.first(where: { $0.id == id }) else {
+        guard let item = userMemojis.first(where: { $0.id == id })
+                        ?? randomMemojis.first(where: { $0.id == id })
+                        ?? builtinAnimojis.first(where: { $0.id == id }) else {
             return
         }
         
@@ -132,64 +159,52 @@ public struct ContentView: View {
             }
         }
         
-        // 2. Load Stickers list
+        // 2. Load sticker list if not cached
         if avatarStickers[id] == nil {
             loadStickers(for: item)
         }
     }
     
+    @MainActor
     private func loadStickers(for item: AvatarItem) {
         switch item.sourceType {
         case .userMemoji(let uuid):
-            // Check disk for high-res cached PNGs
+            // First try disk-cached high-res PNGs (fast, no AvatarKit render needed)
             let diskStickers = AvatarDatabaseReader.shared.findCachedStickers(forUUID: uuid)
             if !diskStickers.isEmpty {
                 avatarStickers[item.id] = diskStickers
             } else {
-                // Generate sticker configs from AvatarKit
+                // Fall back to AvatarKit sticker config names
                 let names = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
-                avatarStickers[item.id] = names.map { name in
-                    let meta = AvatarDatabaseReader.shared.metadata(forStickerName: name)
-                    return StickerItem(
-                        id: "\(item.id)_\(name)",
-                        name: name,
-                        localizedTitle: meta.title,
-                        category: meta.category,
-                        emoji: meta.emoji
-                    )
-                }
+                avatarStickers[item.id] = makeStickerItems(from: names, prefix: item.id)
             }
             
         case .builtinAnimoji(let name):
             let names = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: name)
-            avatarStickers[item.id] = names.map { sName in
-                let meta = AvatarDatabaseReader.shared.metadata(forStickerName: sName)
-                return StickerItem(
-                    id: "\(item.id)_\(sName)",
-                    name: sName,
-                    localizedTitle: meta.title,
-                    category: meta.category,
-                    emoji: meta.emoji
-                )
-            }
+            avatarStickers[item.id] = makeStickerItems(from: names, prefix: item.id)
             
         case .randomMemoji:
             let names = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
-            avatarStickers[item.id] = names.map { sName in
-                let meta = AvatarDatabaseReader.shared.metadata(forStickerName: sName)
-                return StickerItem(
-                    id: "\(item.id)_\(sName)",
-                    name: sName,
-                    localizedTitle: meta.title,
-                    category: meta.category,
-                    emoji: meta.emoji
-                )
-            }
+            avatarStickers[item.id] = makeStickerItems(from: names, prefix: item.id)
+        }
+    }
+    
+    private func makeStickerItems(from names: [String], prefix: String) -> [StickerItem] {
+        names.map { name in
+            let meta = AvatarDatabaseReader.shared.metadata(forStickerName: name)
+            return StickerItem(
+                id: "\(prefix)_\(name)",
+                name: name,
+                localizedTitle: meta.title,
+                category: meta.category,
+                emoji: meta.emoji
+            )
         }
     }
     
     // MARK: - Actions
     
+    @MainActor
     private func addRandomMemoji() {
         guard let rand = AvatarKitBridge.shared.createRandomMemoji() else { return }
         let seed = UUID()
@@ -208,24 +223,25 @@ public struct ContentView: View {
         selectedAvatarId = id
     }
     
+    @MainActor
     private func randomizeCurrentMemoji(item: AvatarItem) {
+        // Animojis cannot be randomized — generate a new random Memoji instead
         if case .builtinAnimoji = item.sourceType {
-            // Builtin animojis cannot be randomized, create a random Memoji instead
             addRandomMemoji()
             return
         }
         
-        if let avatar = avatarObjects[item.id] {
-            let randSel = NSSelectorFromString("randomize")
-            if (avatar as AnyObject).responds(to: randSel) {
-                _ = (avatar as AnyObject).perform(randSel)
-                // Force reload view by updating id
-                let currentId = selectedAvatarId
-                selectedAvatarId = nil
-                DispatchQueue.main.async {
-                    selectedAvatarId = currentId
-                }
-            }
+        guard let avatar = avatarObjects[item.id] else { return }
+        let randSel = NSSelectorFromString("randomize")
+        guard (avatar as AnyObject).responds(to: randSel) else { return }
+        _ = (avatar as AnyObject).perform(randSel)
+        
+        // Force the 3D view to re-render by briefly niling the selection
+        let savedId = selectedAvatarId
+        selectedAvatarId = nil
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+            selectedAvatarId = savedId
         }
     }
 }
