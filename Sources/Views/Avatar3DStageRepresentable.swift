@@ -25,34 +25,33 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     }
     
     public func makeNSView(context: Context) -> NSView {
-        // Use a strong container that auto-sizes correctly
-        let container = FlippedView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.clear.cgColor
+        // Plain NSView container — DO NOT set wantsLayer or FlippedView.
+        // AVTView is already layer-backed (wantsLayer=true, isFlipped=false internally),
+        // and putting it inside a flipped or extra-layer container breaks its Metal renderer.
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
         
-        if let avtView = AvatarKitBridge.shared.createAVTView(frame: .zero, avatar: avatar) {
-            avtView.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(avtView)
-            NSLayoutConstraint.activate([
-                avtView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                avtView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-                avtView.topAnchor.constraint(equalTo: container.topAnchor),
-                avtView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            ])
-            context.coordinator.avtView = avtView
-            context.coordinator.currentAvatar = avatar
-            context.coordinator.currentPose = activePoseName
-            
-            if let pose = activePoseName {
-                // Apply initial pose after a brief delay to allow 3D scene to load
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    AvatarKitBridge.shared.applyStickerPose(
-                        named: pose,
-                        to: avtView,
-                        animojiNamed: isAnimoji ? animojiName : nil,
-                        duration: 0.0
-                    )
-                }
+        guard let avtView = AvatarKitBridge.shared.createAVTView(frame: container.bounds, avatar: avatar) else {
+            return container
+        }
+        
+        // autoresizingMask is the most reliable way to keep AVTView filling its container.
+        // Auto Layout + layer hosting can conflict with AVTView's private Metal layer tree.
+        avtView.autoresizingMask = [.width, .height]
+        container.addSubview(avtView)
+        
+        context.coordinator.avtView = avtView
+        context.coordinator.currentAvatar = avatar
+        context.coordinator.currentPose = activePoseName
+        
+        // Apply initial pose after one runloop pass to allow the Metal scene to load
+        if let pose = activePoseName {
+            DispatchQueue.main.async {
+                AvatarKitBridge.shared.applyStickerPose(
+                    named: pose,
+                    to: avtView,
+                    animojiNamed: isAnimoji ? animojiName : nil,
+                    duration: 0.0
+                )
             }
         }
         
@@ -62,13 +61,13 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     public func updateNSView(_ nsView: NSView, context: Context) {
         guard let avtView = context.coordinator.avtView else { return }
         
-        // Update avatar if reference changed
+        // Update avatar only when the actual object reference changes
         if context.coordinator.currentAvatar !== avatar {
             context.coordinator.currentAvatar = avatar
             AvatarKitBridge.shared.setAvatar(avatar, on: avtView)
         }
         
-        // Update pose if changed (including clearing back to nil)
+        // Update pose when changed (including nil = clear back to neutral)
         if context.coordinator.currentPose != activePoseName {
             context.coordinator.currentPose = activePoseName
             if let pose = activePoseName {
@@ -79,8 +78,8 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
                     duration: 0.35
                 )
             }
-            // If pose is cleared (nil), the avatar stays in last pose — reset by cycling avatar
-            // This is fine UX behaviour (neutral reset button is shown to user separately)
+            // When pose is cleared (nil): avatar stays in last pose —
+            // user can press the ✕ chip to reset or randomize
         }
     }
     
@@ -89,11 +88,6 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         var currentAvatar: AnyObject?
         var currentPose: String?
     }
-}
-
-/// NSView subclass that flips coordinate system, needed for correct AVTView layout on macOS.
-private final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
 }
 
 /// Wraps Apple's AVTRecordView (live face-tracking camera mirror) for SwiftUI.
@@ -109,26 +103,20 @@ public struct LiveFaceMirrorRepresentable: NSViewRepresentable {
     }
     
     public func makeNSView(context: Context) -> NSView {
-        let container = FlippedView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.clear.cgColor
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
         
-        if let recordView = AvatarKitBridge.shared.createAVTRecordView(frame: .zero, avatar: avatar) {
-            recordView.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(recordView)
-            NSLayoutConstraint.activate([
-                recordView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                recordView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-                recordView.topAnchor.constraint(equalTo: container.topAnchor),
-                recordView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            ])
-            context.coordinator.recordView = recordView
-            context.coordinator.currentAvatar = avatar
-            
-            // Start face tracking after brief layout pass
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                AvatarKitBridge.shared.startCameraPreview(on: recordView)
-            }
+        guard let recordView = AvatarKitBridge.shared.createAVTRecordView(frame: container.bounds, avatar: avatar) else {
+            return container
+        }
+        
+        recordView.autoresizingMask = [.width, .height]
+        container.addSubview(recordView)
+        context.coordinator.recordView = recordView
+        context.coordinator.currentAvatar = avatar
+        
+        // Start camera face-tracking after one runloop pass
+        DispatchQueue.main.async {
+            AvatarKitBridge.shared.startCameraPreview(on: recordView)
         }
         
         return container

@@ -129,9 +129,9 @@ public final class AvatarKitBridge {
         guard let viewCls = avtViewClass as? NSView.Type else { return nil }
         let view = viewCls.init(frame: frame)
         
-        // Use layer-level clear background to avoid key-value crash
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.clear.cgColor
+        // NOTE: Do NOT set wantsLayer or modify the layer here.
+        // AVTView has wantsLayer=true and a Metal CALayer already set up internally.
+        // Adding another CA layer hierarchy breaks its rendering pipeline.
         
         if let avatar = avatar {
             setAvatar(avatar, on: view)
@@ -154,8 +154,7 @@ public final class AvatarKitBridge {
         guard let viewCls = avtRecordViewClass as? NSView.Type else { return nil }
         let view = viewCls.init(frame: frame)
         
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.clear.cgColor
+        // NOTE: Do NOT set wantsLayer or modify the layer — same reason as AVTView above.
         
         if let avatar = avatar {
             setAvatar(avatar, on: view)
