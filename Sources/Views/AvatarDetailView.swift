@@ -151,9 +151,9 @@ public struct AvatarDetailView: View {
                 isAnimoji: isAnimoji,
                 animojiName: animojiName
             )
-            .padding(16)
+            .padding(displayMode == .full3D ? 24 : 12)
             
-            // Stage Controls Overlay (Top Right)
+            // Stage Controls Overlay
             VStack {
                 HStack {
                     if let pose = activePoseName {
@@ -201,7 +201,24 @@ public struct AvatarDetailView: View {
                     }
                 }
                 .padding(12)
+                
                 Spacer()
+                
+                // 3D Navigation Hint (Full 3D Mode)
+                if displayMode == .full3D {
+                    HStack(spacing: 6) {
+                        Image(systemName: "hand.draw")
+                            .font(.system(size: 10))
+                        Text("Drag to rotate • Scroll to zoom")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                    .padding(.bottom, 8)
+                }
             }
         }
     }

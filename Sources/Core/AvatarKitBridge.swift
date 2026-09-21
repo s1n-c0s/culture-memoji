@@ -146,7 +146,25 @@ public final class AvatarKitBridge {
             callable(view, contSel, true)
         }
         
+        // Enable interactive 3D camera controls (scroll to zoom, drag to rotate)
+        let ctrlSel = NSSelectorFromString("setAllowsCameraControl:")
+        if view.responds(to: ctrlSel) {
+            _ = (view as AnyObject).perform(ctrlSel, with: true as NSNumber)
+        }
+        
+        // Set comfortable uncropped default FOV (46.0) so the model never touches viewport edges
+        setCameraFieldOfView(46.0, on: view)
+        
         return view
+    }
+    
+    /// Sets camera field of view on an AVTView to control framing and prevent cropping
+    public func setCameraFieldOfView(_ fov: Double, on view: NSView) {
+        let povSel = NSSelectorFromString("pointOfView")
+        guard let pov = (view as AnyObject).perform(povSel)?.takeUnretainedValue() else { return }
+        let camSel = NSSelectorFromString("camera")
+        guard let cam = (pov as AnyObject).perform(camSel)?.takeUnretainedValue() else { return }
+        (cam as AnyObject).setValue(fov, forKey: "fieldOfView")
     }
     
     /// Creates an AVTRecordView for live camera face-tracking
@@ -268,18 +286,59 @@ public final class AvatarKitBridge {
         return nil // Not found in any known pack
     }
     
-    /// Smoothly transitions the 3D AVTView to a given sticker pose/expression
+    /// Smoothly transitions the 3D AVTView to a given sticker pose/expression,
+    /// ensuring the camera FOV is calibrated so hands, gestures, and accessories are never cropped.
     public func applyStickerPose(named stickerName: String, to view: NSView, animojiNamed: String? = nil, duration: Double = 0.25) {
         guard let cfg = stickerConfiguration(named: stickerName, animojiNamed: animojiNamed) else {
             return // Pose not found — silently skip to avoid crash
         }
+        
+        // Calibrate sticker camera FOV so hands and wide gestures don't get cropped
+        let camSel = NSSelectorFromString("camera")
+        if let stickerCam = (cfg as AnyObject).perform(camSel)?.takeUnretainedValue() {
+            let nodeSel = NSSelectorFromString("node")
+            if let camNode = (stickerCam as AnyObject).perform(nodeSel)?.takeUnretainedValue() {
+                let actualCamSel = NSSelectorFromString("camera")
+                if let actualCam = (camNode as AnyObject).perform(actualCamSel)?.takeUnretainedValue() {
+                    let currentFov = (actualCam as AnyObject).value(forKey: "fieldOfView") as? Double ?? 31.89
+                    // Ensure FOV is at least 42.0 degrees (or ~22% wider) to avoid cropping hands/arms/accessories
+                    let uncroppedFov = max(currentFov * 1.22, 42.0)
+                    (actualCam as AnyObject).setValue(uncroppedFov, forKey: "fieldOfView")
+                }
+            }
+        }
+        
         let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")
         guard view.responds(to: transSel),
               let method = class_getInstanceMethod(type(of: view), transSel) else { return }
         
-        typealias TransFunc = @convention(c) (AnyObject, Selector, AnyObject, Double, (@convention(block) () -> Void)?) -> Void
+        typealias TransFunc = @convention(c) (AnyObject, Selector, AnyObject?, Double, (@convention(block) () -> Void)?) -> Void
         let callable = unsafeBitCast(method_getImplementation(method), to: TransFunc.self)
-        callable(view, transSel, cfg, duration, nil)
+        callable(view, transSel, cfg, duration, { [weak self] in
+            // Ensure active pointOfView camera maintains uncropped FOV
+            let povSel = NSSelectorFromString("pointOfView")
+            if let pov = (view as AnyObject).perform(povSel)?.takeUnretainedValue() {
+                if let activeCam = (pov as AnyObject).perform(camSel)?.takeUnretainedValue() {
+                    let fov = (activeCam as AnyObject).value(forKey: "fieldOfView") as? Double ?? 0
+                    if fov < 40.0 {
+                        self?.setCameraFieldOfView(42.0, on: view)
+                    }
+                }
+            }
+        })
+    }
+    
+    /// Smoothly transitions back to neutral pose and resets camera to uncropped default framing
+    public func resetToNeutralPose(on view: NSView, duration: Double = 0.25) {
+        let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")
+        guard view.responds(to: transSel),
+              let method = class_getInstanceMethod(type(of: view), transSel) else { return }
+        
+        typealias TransFunc = @convention(c) (AnyObject, Selector, AnyObject?, Double, (@convention(block) () -> Void)?) -> Void
+        let callable = unsafeBitCast(method_getImplementation(method), to: TransFunc.self)
+        callable(view, transSel, nil, duration, { [weak self] in
+            self?.setCameraFieldOfView(46.0, on: view)
+        })
     }
     
     // MARK: - Snapshots & Rendering
