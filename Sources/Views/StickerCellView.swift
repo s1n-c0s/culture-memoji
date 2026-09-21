@@ -33,24 +33,24 @@ public struct StickerCellView: View {
     }
     
     public var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             // Sticker Image Card
             ZStack {
-                // Card Background with smooth elevation on hover
-                RoundedRectangle(cornerRadius: 14)
+                // Background surface
+                RoundedRectangle(cornerRadius: 12)
                     .fill(Color(nsColor: .controlBackgroundColor))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 14)
+                        RoundedRectangle(cornerRadius: 12)
                             .stroke(
-                                isHovered ? Color.accentColor.opacity(0.7) : Color.primary.opacity(0.06),
-                                lineWidth: isHovered ? 1.5 : 1
+                                isHovered ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.04),
+                                lineWidth: isHovered ? 1.0 : 0.5
                             )
                     )
                     .shadow(
-                        color: isHovered ? Color.black.opacity(0.12) : Color.black.opacity(0.03),
-                        radius: isHovered ? 8 : 3,
+                        color: isHovered ? Color.black.opacity(0.07) : Color.black.opacity(0.02),
+                        radius: isHovered ? 6 : 2,
                         x: 0,
-                        y: isHovered ? 4 : 1
+                        y: isHovered ? 2 : 1
                     )
                 
                 // Sticker Image or Loader
@@ -59,66 +59,42 @@ public struct StickerCellView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .padding(10)
-                        .scaleEffect(isHovered ? 1.04 : 1.0)
-                        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovered)
+                        .scaleEffect(isHovered ? 1.03 : 1.0)
+                        .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
                 } else {
                     ProgressView()
-                        .scaleEffect(0.75)
-                }
-                
-                // "Pose 3D" pill on hover (top center)
-                if isHovered && !showCopiedAlert {
-                    VStack {
-                        HStack(spacing: 4) {
-                            Image(systemName: "cube.transparent")
-                                .font(.system(size: 9))
-                            Text("Pose 3D")
-                                .font(.system(size: 9, weight: .bold))
-                        }
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Capsule())
-                        .shadow(radius: 2)
-                        .padding(.top, 6)
-                        
-                        Spacer()
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                        .scaleEffect(0.7)
                 }
                 
                 // Copied Notification Overlay
                 if showCopiedAlert {
-                    VStack {
-                        Spacer()
-                        HStack(spacing: 5) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                            Text("Copied!")
-                                .font(.system(size: 11, weight: .bold))
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Capsule())
-                        .shadow(radius: 4)
-                        .padding(.bottom, 8)
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.green)
+                        Text("Copied")
+                            .font(.system(size: 10.5, weight: .semibold))
                     }
-                    .transition(.opacity.combined(with: .scale))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                    .shadow(radius: 3)
+                    .transition(.scale.combined(with: .opacity))
                 }
                 
-                // Hover Action Bar (Copy & Export Buttons)
+                // Minimal Hover Actions (Top-right)
                 if isHovered && !showCopiedAlert {
                     VStack {
-                        Spacer()
-                        
-                        HStack(spacing: 6) {
+                        HStack(spacing: 4) {
+                            Spacer()
+                            
                             // Copy button
                             Button(action: copySticker) {
-                                Image(systemName: "doc.on.doc.fill")
-                                    .font(.system(size: 11))
-                                    .padding(6)
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 9.5))
+                                    .foregroundColor(.primary)
+                                    .frame(width: 22, height: 22)
                                     .background(.ultraThinMaterial)
                                     .clipShape(Circle())
                             }
@@ -131,30 +107,31 @@ public struct StickerCellView: View {
                                     onExportRequest(sticker, img)
                                 }
                             }) {
-                                Image(systemName: "square.and.arrow.down.fill")
-                                    .font(.system(size: 11))
-                                    .padding(6)
+                                Image(systemName: "square.and.arrow.down")
+                                    .font(.system(size: 9.5))
+                                    .foregroundColor(.primary)
+                                    .frame(width: 22, height: 22)
                                     .background(.ultraThinMaterial)
                                     .clipShape(Circle())
                             }
                             .buttonStyle(.plain)
                             .disabled(loadedImage == nil)
-                            .help("Custom Export Options...")
+                            .help("Export Options...")
                         }
-                        .padding(.bottom, 8)
+                        .padding(5)
+                        
+                        Spacer()
                     }
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .transition(.opacity)
                 }
             }
-            .frame(height: 125)
-            .contentShape(RoundedRectangle(cornerRadius: 14))
+            .frame(height: 120)
+            .contentShape(RoundedRectangle(cornerRadius: 12))
             .onTapGesture {
-                // Single click poses the 3D model
                 onSelectPose(sticker.name)
             }
             .simultaneousGesture(
                 TapGesture(count: 2).onEnded {
-                    // Double click quickly copies sticker
                     copySticker()
                 }
             )
@@ -206,20 +183,14 @@ public struct StickerCellView: View {
                 return NSItemProvider()
             }
             
-            // Title & Category Label
-            VStack(spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(sticker.emoji)
-                        .font(.system(size: 12))
-                    Text(sticker.localizedTitle)
-                        .font(.system(size: 11, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                
-                Text(sticker.category.rawValue)
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
+            // Clean Title Label
+            HStack(spacing: 3) {
+                Text(sticker.emoji)
+                    .font(.system(size: 11))
+                Text(sticker.localizedTitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
         .task(id: "\(sticker.id)_\(avatar != nil ? UInt(bitPattern: ObjectIdentifier(avatar!)) : 0)") {

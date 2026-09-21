@@ -22,22 +22,22 @@ public struct ExportModalView: View {
         VStack(spacing: 16) {
             // Header
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(sticker.emoji)
-                            .font(.title3)
+                HStack(spacing: 8) {
+                    Text(sticker.emoji)
+                        .font(.title3)
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("Export \(sticker.localizedTitle)")
                             .font(.headline)
+                        Text("Choose resolution, background, and format")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
-                    Text("Select resolution, custom background, and format")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
                 Spacer()
                 Button(action: { dismiss() }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 16))
+                        .foregroundColor(.secondary.opacity(0.8))
                 }
                 .buttonStyle(.plain)
             }
@@ -182,32 +182,27 @@ public struct ExportModalView: View {
                     Spacer()
                     
                     // Actions
-                    HStack(spacing: 10) {
+                    HStack(spacing: 8) {
                         Button(action: copyToClipboard) {
-                            HStack(spacing: 5) {
-                                Image(systemName: showCopiedAlert ? "checkmark.circle.fill" : "doc.on.doc")
+                            HStack(spacing: 4) {
+                                Image(systemName: showCopiedAlert ? "checkmark" : "doc.on.doc")
                                     .foregroundColor(showCopiedAlert ? .green : .primary)
-                                Text(showCopiedAlert ? "Copied!" : "Copy Image")
+                                Text(showCopiedAlert ? "Copied" : "Copy")
                             }
                             .frame(maxWidth: .infinity)
                         }
-                        .controlSize(.large)
                         
                         Button(action: shareSheet) {
                             Image(systemName: "square.and.arrow.up")
                         }
-                        .controlSize(.large)
-                        .help("Share via AirDrop, Messages, etc.")
+                        .help("Share...")
                         
                         Button(action: saveToFile) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.down.doc.fill")
-                                Text("Save...")
-                            }
-                            .frame(maxWidth: .infinity)
+                            Text("Save Image...")
+                                .fontWeight(.medium)
+                                .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
                     }
                 }
                 .frame(width: 290)

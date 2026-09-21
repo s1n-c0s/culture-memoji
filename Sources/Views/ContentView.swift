@@ -51,13 +51,14 @@ public struct ContentView: View {
                 onAddRandomMemoji: addRandomMemoji,
                 onRefreshRequested: reloadData
             )
-            .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 320)
+            .navigationSplitViewColumnWidth(min: 210, ideal: 235, max: 280)
         } detail: {
             ZStack {
                 if isLoading {
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text("Loading Apple Memoji system...")
+                            .scaleEffect(0.85)
+                        Text("Loading Apple Memojis...")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -76,20 +77,30 @@ public struct ContentView: View {
                     )
                     .id(current.id)
                 } else {
-                    VStack(spacing: 16) {
-                        Image(systemName: "person.crop.circle.badge.questionmark")
-                            .font(.system(size: 48))
-                            .foregroundColor(.secondary)
-                        Text("No Memoji Selected")
+                    VStack(spacing: 14) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.accentColor.opacity(0.08))
+                                .frame(width: 76, height: 76)
+                            
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 32))
+                                .foregroundColor(.accentColor)
+                        }
+                        
+                        Text("Select or Create a Memoji")
                             .font(.title3)
                             .fontWeight(.semibold)
-                        Text("Select an avatar from the sidebar or create a new custom Memoji.")
+                        
+                        Text("Choose an avatar from the sidebar or create a new one in 3D Studio.")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 320)
                         
-                        HStack(spacing: 12) {
+                        HStack(spacing: 10) {
                             Button(action: startCreatingNewMemoji) {
-                                Label("Create New Memoji", systemImage: "sparkles")
+                                Label("New Memoji", systemImage: "plus")
                             }
                             .buttonStyle(.borderedProminent)
                             
@@ -98,6 +109,7 @@ public struct ContentView: View {
                             }
                             .buttonStyle(.bordered)
                         }
+                        .padding(.top, 4)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -106,18 +118,19 @@ public struct ContentView: View {
                 if let toast = toastMessage {
                     VStack {
                         Spacer()
-                        HStack(spacing: 8) {
-                            Image(systemName: "checkmark.circle.fill")
+                        HStack(spacing: 7) {
+                            Image(systemName: "checkmark")
                                 .foregroundColor(.green)
+                                .font(.system(size: 11, weight: .bold))
                             Text(toast)
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: 12, weight: .medium))
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 9)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
                         .background(.ultraThickMaterial)
                         .clipShape(Capsule())
-                        .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 5)
-                        .padding(.bottom, 24)
+                        .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 3)
+                        .padding(.bottom, 20)
                     }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }

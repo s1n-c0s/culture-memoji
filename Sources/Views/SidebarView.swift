@@ -65,174 +65,36 @@ public struct SidebarView: View {
     }
     
     public var body: some View {
-        VStack(spacing: 0) {
-            // Header Top Bar: Filter & New Button
-            VStack(spacing: 8) {
-                // "+ New Memoji Studio" Hero Button
-                Button(action: onAddNewMemoji) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 13, weight: .bold))
-                        Text("New Memoji")
-                            .font(.system(size: 12, weight: .semibold))
-                        Spacer()
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 11))
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(
-                        LinearGradient(
-                            colors: [Color.accentColor, Color.purple.opacity(0.85)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .shadow(color: Color.accentColor.opacity(0.25), radius: 4, x: 0, y: 2)
-                }
-                .buttonStyle(.plain)
-                .help("Create a brand-new Memoji in 3D Studio (⌘N)")
-                
-                // Sidebar Filter TextField
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
+        List(selection: $selectedAvatarId) {
+            // Custom Studio Memojis Section
+            if !filteredCustom.isEmpty || filterText.isEmpty {
+                Section(header: HStack {
+                    Text("Studio Memojis")
+                        .font(.system(size: 10.5, weight: .semibold))
                         .foregroundColor(.secondary)
-                        .font(.system(size: 11))
-                    TextField("Filter avatars...", text: $filterText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 11))
-                    if !filterText.isEmpty {
-                        Button(action: { filterText = "" }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
-                                .font(.system(size: 11))
+                    Spacer()
+                    if !customMemojis.isEmpty {
+                        Text("\(customMemojis.count)")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.8))
+                    }
+                }) {
+                    if customMemojis.isEmpty && filterText.isEmpty {
+                        Button(action: onAddNewMemoji) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "plus.circle")
+                                    .font(.system(size: 11))
+                                Text("Create your first Memoji...")
+                                    .font(.system(size: 11.5))
+                            }
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 4)
                         }
                         .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
-            
-            Divider()
-            
-            // Avatar Groups List
-            List(selection: $selectedAvatarId) {
-                // Custom Studio Memojis Section
-                if !filteredCustom.isEmpty || filterText.isEmpty {
-                    Section(header: HStack {
-                        Label("Studio Memojis", systemImage: "sparkles")
-                            .font(.system(size: 11, weight: .bold))
-                        Spacer()
-                        Text("\(customMemojis.count)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }) {
-                        if customMemojis.isEmpty {
-                            Button(action: onAddNewMemoji) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "plus")
-                                        .font(.system(size: 11))
-                                    Text("Create your first Memoji...")
-                                        .font(.caption)
-                                }
-                                .foregroundColor(.secondary)
-                                .padding(.vertical, 4)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            ForEach(filteredCustom) { item in
-                                NavigationLink(value: item.id) {
-                                    avatarRow(item: item, iconName: "person.crop.circle.badge.checkmark", gradient: [Color.purple, Color.indigo], subtitle: "Custom 3D Model")
-                                }
-                                .contextMenu {
-                                    Button {
-                                        onEditMemoji(item)
-                                    } label: {
-                                        Label("Customize Memoji...", systemImage: "paintbrush")
-                                    }
-                                    
-                                    if let onDuplicate = onDuplicateMemoji {
-                                        Button {
-                                            onDuplicate(item)
-                                        } label: {
-                                            Label("Duplicate Memoji", systemImage: "doc.on.doc")
-                                        }
-                                    }
-                                    
-                                    Divider()
-                                    
-                                    Button(role: .destructive) {
-                                        onDeleteCustomMemoji(item)
-                                    } label: {
-                                        Label("Delete Memoji", systemImage: "trash")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // User System Memojis Section
-                if !filteredUser.isEmpty || filterText.isEmpty {
-                    Section(header: HStack {
-                        Label("System Memojis", systemImage: "person.crop.circle.fill")
-                            .font(.system(size: 11, weight: .bold))
-                        Spacer()
-                        Text("\(userMemojis.count)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }) {
-                        if userMemojis.isEmpty && filterText.isEmpty {
-                            Text("No personal Memojis found in macOS")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .padding(.vertical, 4)
-                        } else {
-                            ForEach(filteredUser) { item in
-                                NavigationLink(value: item.id) {
-                                    avatarRow(item: item, iconName: "person.fill", gradient: [Color.blue, Color.cyan], subtitle: "\(item.cachedStickerCount) stickers")
-                                }
-                                .contextMenu {
-                                    Button {
-                                        onEditMemoji(item)
-                                    } label: {
-                                        Label("Customize Memoji...", systemImage: "paintbrush")
-                                    }
-                                    
-                                    if let onDuplicate = onDuplicateMemoji {
-                                        Button {
-                                            onDuplicate(item)
-                                        } label: {
-                                            Label("Duplicate as Custom Memoji", systemImage: "doc.on.doc")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Randomly Generated Custom Memojis Section
-                if !filteredRandom.isEmpty {
-                    Section(header: HStack {
-                        Label("Generated Memojis", systemImage: "dice.fill")
-                            .font(.system(size: 11, weight: .bold))
-                        Spacer()
-                        Text("\(randomMemojis.count)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }) {
-                        ForEach(filteredRandom) { item in
+                    } else {
+                        ForEach(filteredCustom) { item in
                             NavigationLink(value: item.id) {
-                                avatarRow(item: item, iconName: "sparkles", gradient: [Color.orange, Color.pink], subtitle: "Randomized 3D")
+                                avatarRow(item: item, iconName: "sparkles", tintColor: .purple, subtitle: "Studio Model")
                             }
                             .contextMenu {
                                 Button {
@@ -245,128 +107,210 @@ public struct SidebarView: View {
                                     Button {
                                         onDuplicate(item)
                                     } label: {
-                                        Label("Save as Custom Memoji", systemImage: "square.and.arrow.down")
+                                        Label("Duplicate Memoji", systemImage: "doc.on.doc")
                                     }
+                                }
+                                
+                                Divider()
+                                
+                                Button(role: .destructive) {
+                                    onDeleteCustomMemoji(item)
+                                } label: {
+                                    Label("Delete Memoji", systemImage: "trash")
                                 }
                             }
                         }
-                    }
-                }
-                
-                // Apple Animojis Section
-                if !filteredAnimojis.isEmpty || filterText.isEmpty {
-                    Section(header: HStack {
-                        Label("Apple Animojis", systemImage: "pawprint.fill")
-                            .font(.system(size: 11, weight: .bold))
-                        Spacer()
-                        Text("\(builtinAnimojis.count)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }) {
-                        ForEach(filteredAnimojis) { item in
-                            NavigationLink(value: item.id) {
-                                HStack(spacing: 10) {
-                                    Text(emojiForAnimoji(item.displayName))
-                                        .font(.system(size: 15))
-                                        .frame(width: 24, height: 24)
-                                        .background(Color.primary.opacity(0.06))
-                                        .clipShape(Circle())
-                                    
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(item.displayName.capitalized)
-                                            .font(.system(size: 12, weight: .medium))
-                                        Text("Apple Animoji")
-                                            .font(.system(size: 10))
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-                                .padding(.vertical, 2)
-                            }
-                        }
-                    }
-                }
-                
-                // Quick Tools Section
-                if filterText.isEmpty {
-                    Section(header: Label("Quick Actions", systemImage: "wrench.and.screwdriver.fill")
-                        .font(.system(size: 11, weight: .bold))) {
-                        Button(action: onAddNewMemoji) {
-                            Label("New Memoji Studio...", systemImage: "paintbrush.fill")
-                                .font(.system(size: 12))
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.vertical, 2)
-                        
-                        Button(action: onAddRandomMemoji) {
-                            Label("Quick Random Memoji", systemImage: "dice.fill")
-                                .font(.system(size: 12))
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.vertical, 2)
-                        
-                        Button(action: openSystemMemojiEditor) {
-                            Label("System Settings Memojis...", systemImage: "slider.horizontal.3")
-                                .font(.system(size: 12))
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.vertical, 2)
-                        .help("Opens macOS System Settings or Messages to customize Memojis")
                     }
                 }
             }
-            .listStyle(.sidebar)
-        }
-        .safeAreaInset(edge: .bottom) {
-            // Footer status bar
-            VStack(spacing: 6) {
-                Divider()
-                HStack {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(AvatarKitBridge.shared.isAvailable ? Color.green : Color.orange)
-                            .frame(width: 7, height: 7)
-                        Text(AvatarKitBridge.shared.isAvailable ? "AvatarKit Active" : "Cache Mode")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
-                    
+            
+            // User System Memojis Section
+            if !filteredUser.isEmpty || filterText.isEmpty {
+                Section(header: HStack {
+                    Text("System Memojis")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(.secondary)
                     Spacer()
+                    if !userMemojis.isEmpty {
+                        Text("\(userMemojis.count)")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.8))
+                    }
+                }) {
+                    if userMemojis.isEmpty && filterText.isEmpty {
+                        Text("No personal Memojis found")
+                            .font(.system(size: 11.5))
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 4)
+                    } else {
+                        ForEach(filteredUser) { item in
+                            NavigationLink(value: item.id) {
+                                avatarRow(item: item, iconName: "person.fill", tintColor: .accentColor, subtitle: "\(item.cachedStickerCount) stickers")
+                            }
+                            .contextMenu {
+                                Button {
+                                    onEditMemoji(item)
+                                } label: {
+                                    Label("Customize Memoji...", systemImage: "paintbrush")
+                                }
+                                
+                                if let onDuplicate = onDuplicateMemoji {
+                                    Button {
+                                        onDuplicate(item)
+                                    } label: {
+                                        Label("Duplicate as Custom Memoji", systemImage: "doc.on.doc")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Randomly Generated Custom Memojis Section
+            if !filteredRandom.isEmpty {
+                Section(header: HStack {
+                    Text("Generated Memojis")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(randomMemojis.count)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary.opacity(0.8))
+                }) {
+                    ForEach(filteredRandom) { item in
+                        NavigationLink(value: item.id) {
+                            avatarRow(item: item, iconName: "dice.fill", tintColor: .orange, subtitle: "Randomized")
+                        }
+                        .contextMenu {
+                            Button {
+                                onEditMemoji(item)
+                            } label: {
+                                Label("Customize Memoji...", systemImage: "paintbrush")
+                            }
+                            
+                            if let onDuplicate = onDuplicateMemoji {
+                                Button {
+                                    onDuplicate(item)
+                                } label: {
+                                    Label("Save as Custom Memoji", systemImage: "square.and.arrow.down")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Apple Animojis Section
+            if !filteredAnimojis.isEmpty || filterText.isEmpty {
+                Section(header: HStack {
+                    Text("Apple Animojis")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(builtinAnimojis.count)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary.opacity(0.8))
+                }) {
+                    ForEach(filteredAnimojis) { item in
+                        NavigationLink(value: item.id) {
+                            HStack(spacing: 9) {
+                                Text(emojiForAnimoji(item.displayName))
+                                    .font(.system(size: 14))
+                                    .frame(width: 26, height: 26)
+                                    .background(Color.primary.opacity(0.05))
+                                    .clipShape(Circle())
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.displayName.capitalized)
+                                        .font(.system(size: 12.5, weight: .medium))
+                                        .lineLimit(1)
+                                    Text("Apple Animoji")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer(minLength: 4)
+                            }
+                            .padding(.vertical, 3)
+                        }
+                    }
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .searchable(text: $filterText, placement: .sidebar, prompt: "Search Memojis...")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button(action: onAddNewMemoji) {
+                        Label("New Studio Memoji", systemImage: "sparkles")
+                    }
+                    .keyboardShortcut("n", modifiers: .command)
+                    
+                    Button(action: onAddRandomMemoji) {
+                        Label("Random Memoji", systemImage: "dice")
+                    }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    
+                    Divider()
+                    
+                    Button(action: openSystemMemojiEditor) {
+                        Label("System Settings Memojis...", systemImage: "gearshape")
+                    }
                     
                     Button(action: onRefreshRequested) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11))
+                        Label("Reload Database", systemImage: "arrow.clockwise")
                     }
-                    .buttonStyle(.plain)
-                    .help("Reload system database")
+                } label: {
+                    Image(systemName: "plus")
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
+                .help("Create or generate Memoji (⌘N)")
             }
-            .background(Color(nsColor: .windowBackgroundColor))
+        }
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(AvatarKitBridge.shared.isAvailable ? Color.green : Color.orange)
+                        .frame(width: 6, height: 6)
+                    Text(AvatarKitBridge.shared.isAvailable ? "Ready" : "Cache")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Button(action: onRefreshRequested) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Reload system database")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial)
         }
     }
     
     // MARK: - Row View Helper
     
-    private func avatarRow(item: AvatarItem, iconName: String, gradient: [Color], subtitle: String) -> some View {
-        HStack(spacing: 10) {
+    private func avatarRow(item: AvatarItem, iconName: String, tintColor: Color, subtitle: String) -> some View {
+        HStack(spacing: 9) {
             ZStack {
-                LinearGradient(
-                    colors: gradient,
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .frame(width: 24, height: 24)
-                .clipShape(Circle())
+                Circle()
+                    .fill(tintColor.opacity(0.12))
+                    .frame(width: 26, height: 26)
                 
                 Image(systemName: iconName)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(tintColor)
             }
             
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(item.displayName)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 12.5, weight: .medium))
                     .lineLimit(1)
                 Text(subtitle)
                     .font(.system(size: 10))
@@ -375,7 +319,7 @@ public struct SidebarView: View {
             
             Spacer(minLength: 4)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
     }
     
     // MARK: - Emoji Lookup

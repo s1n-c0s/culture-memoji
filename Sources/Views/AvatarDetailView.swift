@@ -85,11 +85,6 @@ public struct AvatarDetailView: View {
     
     public var body: some View {
         VStack(spacing: 0) {
-            // Header Bar
-            headerBar
-            
-            Divider()
-            
             // Content Area based on Display Mode
             if displayMode == .liveCamera {
                 liveCameraSection
@@ -120,80 +115,56 @@ public struct AvatarDetailView: View {
                 }
             }
         }
-    }
-    
-    // MARK: - Header Bar
-    
-    private var headerBar: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Text(avatarItem.displayName)
-                        .font(.title2)
-                        .fontWeight(.bold)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("", selection: $displayMode) {
+                    ForEach(StageDisplayMode.allCases) { mode in
+                        Label(mode.rawValue, systemImage: mode.iconName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 300)
+            }
+            
+            ToolbarItemGroup(placement: .primaryAction) {
+                // Copy visual avatar snapshot button with dropdown menu
+                Menu {
+                    Button {
+                        copyVisualAvatar(withBackdrop: false)
+                    } label: {
+                        Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
+                    }
                     
-                    // Badge
-                    Text(badgeLabel)
-                        .font(.system(size: 10, weight: .semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(badgeColor.opacity(0.15))
-                        .foregroundColor(badgeColor)
-                        .clipShape(Capsule())
-                }
-                
-                Text("\(stickers.count) sticker variations ready to use and export")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-            
-            // Mode Picker
-            Picker("", selection: $displayMode) {
-                ForEach(StageDisplayMode.allCases) { mode in
-                    Label(mode.rawValue, systemImage: mode.iconName).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 320)
-            
-            // Copy visual avatar snapshot button with dropdown menu
-            Menu {
-                Button {
+                    Button {
+                        copyVisualAvatar(withBackdrop: true)
+                    } label: {
+                        Label("Copy with Studio Backdrop", systemImage: "photo")
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: showCopiedAlert ? "checkmark" : "doc.on.doc")
+                            .foregroundColor(showCopiedAlert ? .green : .primary)
+                        Text(showCopiedAlert ? copiedNotificationText : "Copy")
+                    }
+                } primaryAction: {
                     copyVisualAvatar(withBackdrop: false)
-                } label: {
-                    Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
+                }
+                .help("Copy avatar snapshot (⌘C)")
+                
+                // Customize button for editable avatars
+                if avatarItem.isEditable {
+                    Button(action: onEditRequested) {
+                        Label("Customize", systemImage: "paintbrush")
+                    }
+                    .help("Open 3D Memoji Studio to edit hairstyle, skin tone, colors (⌘E)")
                 }
                 
-                Button {
-                    copyVisualAvatar(withBackdrop: true)
-                } label: {
-                    Label("Copy with Studio Backdrop", systemImage: "photo")
+                Button(action: shareAvatar) {
+                    Image(systemName: "square.and.arrow.up")
                 }
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: showCopiedAlert ? "checkmark" : "doc.on.doc")
-                        .foregroundColor(showCopiedAlert ? .green : .primary)
-                    Text(showCopiedAlert ? copiedNotificationText : "Copy Avatar")
-                }
-            } primaryAction: {
-                copyVisualAvatar(withBackdrop: false)
-            }
-            .help("Copy avatar exactly as visually shown. Click arrow for options.")
-            
-            // Customize button for editable avatars
-            if avatarItem.isEditable {
-                Button(action: onEditRequested) {
-                    Label("Customize", systemImage: "paintbrush.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .help("Open 3D Memoji Studio to edit hairstyle, skin tone, colors, glasses, outfit (⌘E)")
+                .help("Share avatar image...")
             }
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 12)
-        .background(Color(nsColor: .windowBackgroundColor))
     }
     
     // MARK: - 3D Stage Section
@@ -248,38 +219,54 @@ public struct AvatarDetailView: View {
     
     private var stageOverlayControls: some View {
         VStack {
-            HStack {
-                // Active Pose Chip with Reset Button
-                if let pose = activePoseName {
-                    HStack(spacing: 6) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 10))
-                            .foregroundColor(.accentColor)
-                        Text(friendlyPoseName(pose))
-                            .font(.system(size: 11, weight: .semibold))
-                        
-                        Button(action: {
-                            withAnimation {
-                                activePoseName = nil
+            HStack(alignment: .top) {
+                // Leading: Avatar Name & Active Pose Chip
+                HStack(spacing: 8) {
+                    Text(avatarItem.displayName)
+                        .font(.system(size: 13, weight: .semibold))
+                    
+                    Text(badgeLabel)
+                        .font(.system(size: 9.5, weight: .medium))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2.5)
+                        .background(badgeColor.opacity(0.12))
+                        .foregroundColor(badgeColor)
+                        .clipShape(Capsule())
+                    
+                    if let pose = activePoseName {
+                        HStack(spacing: 4) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 9.5))
+                                .foregroundColor(.accentColor)
+                            Text(friendlyPoseName(pose))
+                                .font(.system(size: 11, weight: .medium))
+                            
+                            Button(action: {
+                                withAnimation {
+                                    activePoseName = nil
+                                }
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 10))
                             }
-                        }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
-                                .font(.system(size: 11))
+                            .buttonStyle(.plain)
+                            .help("Reset to neutral expression")
                         }
-                        .buttonStyle(.plain)
-                        .help("Reset to neutral expression")
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                    .shadow(color: .black.opacity(0.1), radius: 3)
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.ultraThinMaterial)
+                .clipShape(Capsule())
                 
                 Spacer()
                 
-                // Backdrop Theme & Quick Actions Pill
+                // Trailing: Backdrop Theme & Reset View Controls
                 HStack(spacing: 8) {
                     // Backdrop theme menu
                     Menu {
@@ -300,7 +287,7 @@ public struct AvatarDetailView: View {
                     .menuStyle(.borderlessButton)
                     .help("Change studio backdrop lighting")
                     
-                    Divider().frame(height: 14)
+                    Divider().frame(height: 12)
                     
                     // Reset View button
                     Button(action: resetCamera) {
@@ -310,50 +297,24 @@ public struct AvatarDetailView: View {
                     .buttonStyle(.plain)
                     .help("Reset camera framing & orientation")
                     
-                    // Randomize button if random or user memoji
-                    Button(action: onRandomizeRequested) {
-                        Image(systemName: "dice.fill")
-                            .font(.system(size: 11))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Randomize Memoji appearance (⌘R)")
-                    
-                    // Quick Copy button in stage pill
-                    Menu {
-                        Button {
-                            copyVisualAvatar(withBackdrop: false)
-                        } label: {
-                            Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
-                        }
+                    if avatarItem.isEditable {
+                        Divider().frame(height: 12)
                         
-                        Button {
-                            copyVisualAvatar(withBackdrop: true)
-                        } label: {
-                            Label("Copy with Studio Backdrop", systemImage: "photo")
+                        // Randomize button if editable
+                        Button(action: onRandomizeRequested) {
+                            Image(systemName: "dice")
+                                .font(.system(size: 11))
                         }
-                    } label: {
-                        Image(systemName: showCopiedAlert ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 11))
-                            .foregroundColor(showCopiedAlert ? .green : .primary)
+                        .buttonStyle(.plain)
+                        .help("Randomize appearance (⌘R)")
                     }
-                    .menuStyle(.borderlessButton)
-                    .help("Copy avatar as visually shown")
-                    
-                    // Share button
-                    Button(action: shareAvatar) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 11))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Share avatar image...")
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(.ultraThinMaterial)
                 .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.1), radius: 3)
             }
-            .padding(14)
+            .padding(12)
             
             Spacer()
             

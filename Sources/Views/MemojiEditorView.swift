@@ -72,51 +72,59 @@ public struct MemojiEditorView: View {
     // MARK: - Header Bar
     
     private var headerBar: some View {
-        HStack(spacing: 16) {
-            HStack(spacing: 10) {
+        HStack(spacing: 14) {
+            HStack(spacing: 8) {
                 Image(systemName: isNew ? "sparkles" : "paintbrush.fill")
-                    .font(.system(size: 18))
+                    .font(.system(size: 14))
                     .foregroundColor(.accentColor)
                 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isNew ? "Create New Memoji" : "Memoji Studio")
-                        .font(.headline)
-                    Text("Interactive 3D customization & styling")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
+                Text(isNew ? "New Memoji" : "Memoji Studio")
+                    .font(.headline)
             }
             
             Spacer()
             
-            // Memoji Name Field with inline edit styling
+            // Memoji Name Field
             HStack(spacing: 6) {
                 Image(systemName: "pencil")
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundColor(.secondary)
                 TextField("Avatar Name", text: $avatarName)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 170)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 140)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
             
             // Revert changes button if edits were made
             if hasUnsavedChanges {
                 Button(action: revertChanges) {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.uturn.backward")
+                            .font(.system(size: 10))
                         Text("Revert")
+                            .font(.system(size: 11.5))
                     }
-                    .font(.system(size: 12))
                 }
-                .help("Revert all customizations back to original")
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+                .help("Revert changes back to original")
             }
             
             // Randomize Button
             Button(action: randomizeAvatar) {
-                Label("Randomize", systemImage: "dice.fill")
-                    .font(.system(size: 12))
+                HStack(spacing: 4) {
+                    Image(systemName: "dice")
+                        .font(.system(size: 11))
+                    Text("Randomize")
+                        .font(.system(size: 11.5))
+                }
             }
-            .help("Randomly generate all facial features and accessories")
+            .buttonStyle(.bordered)
+            .help("Randomly generate all features (⌘R)")
             
             // Cancel Button
             Button("Cancel", action: onCancel)
@@ -128,14 +136,14 @@ public struct MemojiEditorView: View {
                 let finalName = trimmed.isEmpty ? "My Memoji" : trimmed
                 onSave(finalName, editingAvatar)
             }) {
-                Text(isNew ? "Save Memoji" : "Save Changes")
+                Text(isNew ? "Save Memoji" : "Done")
                     .fontWeight(.semibold)
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .background(Color(nsColor: .controlBackgroundColor))
     }
     
@@ -292,25 +300,25 @@ public struct MemojiEditorView: View {
                             selectedCategory = category
                         }
                     }) {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 5) {
                             Image(systemName: category.iconName)
-                                .font(.system(size: 12))
+                                .font(.system(size: 11))
                             Text(category.title)
-                                .font(.system(size: 12, weight: isSelected ? .bold : .medium))
+                                .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(isSelected ? Color.accentColor : Color.clear)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(isSelected ? Color.accentColor : Color(nsColor: .controlBackgroundColor).opacity(0.8))
                         .foregroundColor(isSelected ? .white : .primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(Color(nsColor: .windowBackgroundColor))
     }
     
     // MARK: - Color Palette Section

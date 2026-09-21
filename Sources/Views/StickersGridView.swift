@@ -116,93 +116,86 @@ public struct StickersGridView: View {
     // MARK: - Header Controls
     
     private var headerControlBar: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 12) {
-                // Search field with clear button
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 12))
-                    TextField("Search \(stickers.count) sticker poses, emotions, gestures...", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
-                    
-                    if !searchText.isEmpty {
-                        Button(action: { searchText = "" }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
-                                .font(.system(size: 12))
+        HStack(spacing: 12) {
+            // Search field
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 11))
+                TextField("Search stickers...", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11.5))
+                
+                if !searchText.isEmpty {
+                    Button(action: { searchText = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .frame(maxWidth: 220)
+            
+            // Category Filter Pills
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(StickerCategory.allCases) { cat in
+                        let isSelected = selectedCategory == cat
+                        Button(action: {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                selectedCategory = cat
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: cat.iconName)
+                                    .font(.system(size: 9.5))
+                                Text(cat.rawValue)
+                                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                            }
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4.5)
+                            .background(isSelected ? Color.accentColor : Color(nsColor: .controlBackgroundColor).opacity(0.8))
+                            .foregroundColor(isSelected ? .white : .primary)
+                            .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                
-                // Density Picker
-                Picker("", selection: $gridDensity) {
-                    ForEach(GridDensity.allCases) { density in
-                        Image(systemName: density.iconName).tag(density)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 90)
-                .help("Adjust sticker grid size")
-                
-                // Batch Export Button
-                Button(action: startBatchExport) {
-                    HStack(spacing: 5) {
-                        Image(systemName: isBatchExporting ? "arrow.triangle.2.circlepath" : "arrow.down.doc.fill")
-                            .rotationEffect(.degrees(isBatchExporting ? 360 : 0))
-                            .animation(isBatchExporting ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isBatchExporting)
-                        Text(isBatchExporting ? "Exporting..." : "Export All (\(stickers.count))")
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                }
-                .disabled(stickers.isEmpty || isBatchExporting)
-                .help("Export all stickers to a folder as transparent PNGs")
+                .padding(.vertical, 2)
             }
             
-            // Category Filter Pills with Item Counts
-            HStack(spacing: 8) {
-                ForEach(StickerCategory.allCases) { cat in
-                    let isSelected = selectedCategory == cat
-                    let count = count(for: cat)
-                    
-                    Button(action: {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                            selectedCategory = cat
-                        }
-                    }) {
-                        HStack(spacing: 5) {
-                            Image(systemName: cat.iconName)
-                                .font(.system(size: 10))
-                            Text(cat.rawValue)
-                                .font(.system(size: 11, weight: isSelected ? .bold : .medium))
-                            Text("\(count)")
-                                .font(.system(size: 10))
-                                .foregroundColor(isSelected ? .white.opacity(0.8) : .secondary)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(isSelected ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
-                        .foregroundColor(isSelected ? .white : .primary)
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
+            Spacer()
+            
+            // Density Picker
+            Picker("", selection: $gridDensity) {
+                ForEach(GridDensity.allCases) { density in
+                    Image(systemName: density.iconName).tag(density)
                 }
-                
-                Spacer()
-                
-                Text("\(filteredStickers.count) of \(stickers.count)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
+            .pickerStyle(.segmented)
+            .frame(width: 84)
+            .help("Grid density")
+            
+            // Batch Export Button
+            Button(action: startBatchExport) {
+                HStack(spacing: 4) {
+                    Image(systemName: isBatchExporting ? "arrow.triangle.2.circlepath" : "arrow.down.doc")
+                        .font(.system(size: 11))
+                    Text(isBatchExporting ? "Exporting..." : "Export All")
+                        .font(.system(size: 11, weight: .medium))
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(stickers.isEmpty || isBatchExporting)
+            .help("Export all stickers as transparent PNGs")
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .background(Color(nsColor: .windowBackgroundColor))
     }
     
