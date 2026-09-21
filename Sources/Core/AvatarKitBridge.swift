@@ -163,11 +163,23 @@ public final class AvatarKitBridge {
         return view
     }
     
-    /// Sets an avatar onto an AVTView or AVTRecordView
+    /// Clones an avatar instance (AVTMemoji or AVTAnimoji) so each view owns an isolated SceneKit/VFX graph
+    public func cloneAvatar(_ avatar: AnyObject?) -> AnyObject? {
+        guard let avatar = avatar else { return nil }
+        let copySel = NSSelectorFromString("copy")
+        if (avatar as AnyObject).responds(to: copySel),
+           let cloned = (avatar as AnyObject).perform(copySel)?.takeRetainedValue() {
+            return cloned
+        }
+        return avatar
+    }
+    
+    /// Sets an avatar onto an AVTView or AVTRecordView, giving each view its own isolated clone
     public func setAvatar(_ avatar: AnyObject?, on view: NSView) {
         let sel = NSSelectorFromString("setAvatar:")
         guard view.responds(to: sel) else { return }
-        _ = (view as AnyObject).perform(sel, with: avatar)
+        let targetAvatar = avatar != nil ? cloneAvatar(avatar) : nil
+        _ = (view as AnyObject).perform(sel, with: targetAvatar)
     }
     
     /// Starts live camera face-tracking preview on an AVTRecordView

@@ -99,43 +99,33 @@ public struct AvatarDetailView: View {
             Divider()
             
             // Content Area based on Display Mode
-            switch displayMode {
-            case .split:
-                VStack(spacing: 0) {
-                    // Top 3D Stage
-                    stageSection
-                        .frame(height: stageHeight)
-                    
-                    Divider()
-                    
-                    // Bottom Stickers Grid
-                    StickersGridView(
-                        stickers: stickers,
-                        avatar: avatarObject,
-                        isAnimoji: isAnimoji,
-                        animojiName: animojiName,
-                        onSelectPose: { pose in
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                activePoseName = pose
-                            }
-                        }
-                    )
-                }
-                
-            case .full3D:
-                VStack(spacing: 0) {
-                    stageSection
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    
-                    Divider()
-                    
-                    // Quick Pose selector bar at the bottom
-                    quickPoseBar
-                }
-                
-            case .liveCamera:
+            if displayMode == .liveCamera {
                 liveCameraSection
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack(spacing: 0) {
+                    // 3D Stage: in split mode it uses stageHeight, in full3D mode it expands to fill the entire window
+                    stageSection
+                        .frame(maxHeight: displayMode == .full3D ? .infinity : stageHeight)
+                    
+                    Divider()
+                    
+                    if displayMode == .split {
+                        // Bottom Stickers Grid
+                        StickersGridView(
+                            stickers: stickers,
+                            avatar: avatarObject,
+                            isAnimoji: isAnimoji,
+                            animojiName: animojiName,
+                            onSelectPose: { pose in
+                                activePoseName = pose
+                            }
+                        )
+                    } else {
+                        // Quick Pose selector bar at the bottom in Full 3D mode
+                        quickPoseBar
+                    }
+                }
             }
         }
     }

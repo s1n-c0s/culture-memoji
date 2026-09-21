@@ -29,13 +29,13 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         // AVTView is already layer-backed (wantsLayer=true, isFlipped=false internally),
         // and putting it inside a flipped or extra-layer container breaks its Metal renderer.
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+        container.autoresizesSubviews = true
         
         guard let avtView = AvatarKitBridge.shared.createAVTView(frame: container.bounds, avatar: avatar) else {
             return container
         }
         
-        // autoresizingMask is the most reliable way to keep AVTView filling its container.
-        // Auto Layout + layer hosting can conflict with AVTView's private Metal layer tree.
+        // autoresizingMask keeps AVTView filling its container across resize events
         avtView.autoresizingMask = [.width, .height]
         container.addSubview(avtView)
         
@@ -61,6 +61,11 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     public func updateNSView(_ nsView: NSView, context: Context) {
         guard let avtView = context.coordinator.avtView else { return }
         
+        // Ensure avtView always matches the container's bounds during frame changes / full screen
+        if nsView.bounds.size.width > 0 && nsView.bounds.size.height > 0 && avtView.frame != nsView.bounds {
+            avtView.frame = nsView.bounds
+        }
+        
         // Update avatar only when the actual object reference changes
         if context.coordinator.currentAvatar !== avatar {
             context.coordinator.currentAvatar = avatar
@@ -78,8 +83,14 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
                     duration: 0.35
                 )
             }
-            // When pose is cleared (nil): avatar stays in last pose —
-            // user can press the ✕ chip to reset or randomize
+        }
+    }
+    
+    public static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let avtView = coordinator.avtView {
+            AvatarKitBridge.shared.setAvatar(nil, on: avtView)
+            coordinator.avtView = nil
+            coordinator.currentAvatar = nil
         }
     }
     
