@@ -19,7 +19,7 @@ public struct ExportModalView: View {
     }
     
     public var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             // Header
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -29,14 +29,14 @@ public struct ExportModalView: View {
                         Text("Export \(sticker.localizedTitle)")
                             .font(.headline)
                     }
-                    Text("Configure resolution, background, and format")
+                    Text("Select resolution, custom background, and format")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 Spacer()
                 Button(action: { dismiss() }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
+                        .font(.title3)
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -67,41 +67,97 @@ public struct ExportModalView: View {
                             .aspectRatio(contentMode: .fit)
                             .padding(selectedBackground == .transparent ? 16 : 28)
                     }
-                    .frame(width: 240, height: 240)
+                    .frame(width: 230, height: 230)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                            .stroke(Color.primary.opacity(0.1), lineWidth: 1)
                     )
                     .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
                     
-                    Text("\(Int(selectedResolution)) × \(Int(selectedResolution)) px")
-                        .font(.caption)
+                    Text("\(Int(selectedResolution)) × \(Int(selectedResolution)) px • \(selectedFormat.rawValue)")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary)
                 }
                 
                 // Right: Controls
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 14) {
                     // Resolution
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Resolution")
-                            .font(.system(size: 12, weight: .bold))
+                        HStack {
+                            Text("Resolution")
+                                .font(.system(size: 12, weight: .bold))
+                            Spacer()
+                            Text(resolutionBadgeText(selectedResolution))
+                                .font(.system(size: 10, weight: .medium))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.accentColor.opacity(0.12))
+                                .foregroundColor(.accentColor)
+                                .clipShape(Capsule())
+                        }
+                        
                         Picker("", selection: $selectedResolution) {
-                            Text("256px (Emoji/Icon)").tag(CGFloat(256))
-                            Text("512px (Standard)").tag(CGFloat(512))
-                            Text("1024px (HD)").tag(CGFloat(1024))
-                            Text("2048px (Ultra HD)").tag(CGFloat(2048))
+                            Text("256px").tag(CGFloat(256))
+                            Text("512px").tag(CGFloat(512))
+                            Text("1024px").tag(CGFloat(1024))
+                            Text("2048px").tag(CGFloat(2048))
                         }
                         .pickerStyle(.segmented)
                     }
                     
                     // Background
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Background")
-                            .font(.system(size: 12, weight: .bold))
-                        Picker("", selection: $selectedBackground) {
+                        HStack {
+                            Text("Background")
+                                .font(.system(size: 12, weight: .bold))
+                            Spacer()
+                            Text(selectedBackground.rawValue)
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        // Circular visual swatch selector
+                        HStack(spacing: 8) {
                             ForEach(ExportBackground.allCases) { bg in
-                                Text(bg.rawValue).tag(bg)
+                                let isSelected = selectedBackground == bg
+                                Button(action: {
+                                    selectedBackground = bg
+                                    if bg == .transparent && selectedFormat == .jpeg {
+                                        selectedFormat = .png
+                                    }
+                                }) {
+                                    ZStack {
+                                        if bg == .transparent {
+                                            CheckerboardView()
+                                                .frame(width: 26, height: 26)
+                                                .clipShape(Circle())
+                                        } else if bg.colors.count == 1 {
+                                            Circle()
+                                                .fill(Color(bg.colors[0]))
+                                                .frame(width: 26, height: 26)
+                                        } else {
+                                            Circle()
+                                                .fill(
+                                                    LinearGradient(
+                                                        colors: bg.colors.map { Color($0) },
+                                                        startPoint: .topLeading,
+                                                        endPoint: .bottomTrailing
+                                                    )
+                                                )
+                                                .frame(width: 26, height: 26)
+                                        }
+                                        
+                                        if isSelected {
+                                            Circle()
+                                                .strokeBorder(Color.accentColor, lineWidth: 2.5)
+                                                .frame(width: 32, height: 32)
+                                        }
+                                    }
+                                    .frame(width: 32, height: 32)
+                                }
+                                .buttonStyle(.plain)
+                                .help(bg.rawValue)
                             }
                         }
                     }
@@ -128,9 +184,10 @@ public struct ExportModalView: View {
                     // Actions
                     HStack(spacing: 10) {
                         Button(action: copyToClipboard) {
-                            HStack(spacing: 4) {
-                                Image(systemName: showCopiedAlert ? "checkmark" : "doc.on.doc")
-                                Text(showCopiedAlert ? "Copied!" : "Copy")
+                            HStack(spacing: 5) {
+                                Image(systemName: showCopiedAlert ? "checkmark.circle.fill" : "doc.on.doc")
+                                    .foregroundColor(showCopiedAlert ? .green : .primary)
+                                Text(showCopiedAlert ? "Copied!" : "Copy Image")
                             }
                             .frame(maxWidth: .infinity)
                         }
@@ -153,11 +210,21 @@ public struct ExportModalView: View {
                         .controlSize(.large)
                     }
                 }
-                .frame(width: 280)
+                .frame(width: 290)
             }
         }
-        .padding(24)
-        .frame(width: 580, height: 380)
+        .padding(22)
+        .frame(width: 590, height: 380)
+    }
+    
+    private func resolutionBadgeText(_ res: CGFloat) -> String {
+        switch res {
+        case 256: return "Emoji / Icon"
+        case 512: return "Standard Sticker"
+        case 1024: return "HD Avatar"
+        case 2048: return "Ultra HD / Print"
+        default: return "\(Int(res))px"
+        }
     }
     
     private func copyToClipboard() {
@@ -168,7 +235,7 @@ public struct ExportModalView: View {
             format: selectedFormat
         )
         StickerExportManager.shared.copyToClipboard(image: processed)
-        withAnimation {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             showCopiedAlert = true
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -178,17 +245,6 @@ public struct ExportModalView: View {
         }
     }
     
-    private func saveToFile() {
-        StickerExportManager.shared.saveWithDialog(
-            image: image,
-            defaultFileName: "memoji_\(sticker.name)",
-            targetSize: selectedResolution,
-            background: selectedBackground,
-            format: selectedFormat
-        )
-        dismiss()
-    }
-    
     private func shareSheet() {
         let processed = StickerExportManager.shared.renderProcessedImage(
             original: image,
@@ -196,33 +252,60 @@ public struct ExportModalView: View {
             background: selectedBackground,
             format: selectedFormat
         )
-        if let window = NSApp.keyWindow {
-            let picker = NSSharingServicePicker(items: [processed])
-            picker.show(relativeTo: .zero, of: window.contentView ?? NSView(), preferredEdge: .minY)
+        guard let tempURL = StickerExportManager.shared.createTemporaryFile(for: processed, filename: sticker.name) else {
+            return
+        }
+        
+        let picker = NSSharingServicePicker(items: [tempURL])
+        if let window = NSApplication.shared.keyWindow, let contentView = window.contentView {
+            picker.show(relativeTo: NSRect(x: contentView.bounds.midX, y: contentView.bounds.midY, width: 1, height: 1), of: contentView, preferredEdge: .minY)
+        }
+    }
+    
+    private func saveToFile() {
+        let processed = StickerExportManager.shared.renderProcessedImage(
+            original: image,
+            targetSize: selectedResolution,
+            background: selectedBackground,
+            format: selectedFormat
+        )
+        guard let data = StickerExportManager.shared.imageData(for: processed, format: selectedFormat) else { return }
+        
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = selectedFormat == .png ? [.png] : [.jpeg]
+        savePanel.canCreateDirectories = true
+        savePanel.isExtensionHidden = false
+        savePanel.title = "Save \(sticker.localizedTitle)"
+        savePanel.nameFieldStringValue = "\(sticker.name).\(selectedFormat.fileExtension)"
+        
+        savePanel.begin { response in
+            if response == .OK, let url = savePanel.url {
+                try? data.write(to: url)
+                dismiss()
+            }
         }
     }
 }
 
-/// Checkerboard pattern for indicating transparent background
 public struct CheckerboardView: View {
     public init() {}
     
     public var body: some View {
         Canvas { context, size in
-            let tileSize: CGFloat = 10
-            let cols = Int(ceil(size.width / tileSize))
+            let tileSize: CGFloat = 8
             let rows = Int(ceil(size.height / tileSize))
+            let cols = Int(ceil(size.width / tileSize))
             
             for row in 0..<rows {
                 for col in 0..<cols {
                     let isEven = (row + col) % 2 == 0
-                    let color = isEven ? Color.white : Color(nsColor: .lightGray).opacity(0.3)
                     let rect = CGRect(
                         x: CGFloat(col) * tileSize,
                         y: CGFloat(row) * tileSize,
                         width: tileSize,
                         height: tileSize
                     )
+                    let color = isEven ? Color(white: 0.92) : Color(white: 0.78)
                     context.fill(Path(rect), with: .color(color))
                 }
             }

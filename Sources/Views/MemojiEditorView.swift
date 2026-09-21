@@ -17,6 +17,7 @@ public struct MemojiEditorView: View {
     @State private var searchText: String = ""
     @State private var mutationId = UUID()
     @State private var previewPose: String? = nil
+    @State private var hasUnsavedChanges: Bool = false
     
     public init(
         avatar: AnyObject,
@@ -48,16 +49,16 @@ public struct MemojiEditorView: View {
             HStack(spacing: 0) {
                 // Left: Interactive 3D Stage
                 stagePane
-                    .frame(minWidth: 340, maxWidth: 440)
+                    .frame(minWidth: 350, maxWidth: 440)
                 
                 Divider()
                 
                 // Right: Customization Controls
                 controlsPane
-                    .frame(minWidth: 440, maxWidth: .infinity)
+                    .frame(minWidth: 460, maxWidth: .infinity)
             }
         }
-        .frame(minWidth: 880, minHeight: 620)
+        .frame(minWidth: 900, minHeight: 640)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             syncActiveSelections()
@@ -73,14 +74,14 @@ public struct MemojiEditorView: View {
     private var headerBar: some View {
         HStack(spacing: 16) {
             HStack(spacing: 10) {
-                Image(systemName: isNew ? "sparkles" : "pencil.circle.fill")
-                    .font(.system(size: 20))
+                Image(systemName: isNew ? "sparkles" : "paintbrush.fill")
+                    .font(.system(size: 18))
                     .foregroundColor(.accentColor)
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(isNew ? "Create New Memoji" : "Customize Memoji")
+                    Text(isNew ? "Create New Memoji" : "Memoji Studio")
                         .font(.headline)
-                    Text("Real-time 3D styling and configuration")
+                    Text("Interactive 3D customization & styling")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -88,14 +89,26 @@ public struct MemojiEditorView: View {
             
             Spacer()
             
-            // Memoji Name Field
+            // Memoji Name Field with inline edit styling
             HStack(spacing: 6) {
-                Text("Name:")
-                    .font(.system(size: 12, weight: .medium))
+                Image(systemName: "pencil")
+                    .font(.system(size: 11))
                     .foregroundColor(.secondary)
                 TextField("Avatar Name", text: $avatarName)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 180)
+                    .frame(width: 170)
+            }
+            
+            // Revert changes button if edits were made
+            if hasUnsavedChanges {
+                Button(action: revertChanges) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.uturn.backward")
+                        Text("Revert")
+                    }
+                    .font(.system(size: 12))
+                }
+                .help("Revert all customizations back to original")
             }
             
             // Randomize Button
@@ -103,7 +116,7 @@ public struct MemojiEditorView: View {
                 Label("Randomize", systemImage: "dice.fill")
                     .font(.system(size: 12))
             }
-            .help("Randomly generate all features")
+            .help("Randomly generate all facial features and accessories")
             
             // Cancel Button
             Button("Cancel", action: onCancel)
@@ -131,14 +144,15 @@ public struct MemojiEditorView: View {
     private var stagePane: some View {
         VStack(spacing: 0) {
             ZStack {
-                // Subtle gradient background
-                LinearGradient(
+                // Subtle studio vignette background
+                RadialGradient(
                     colors: [
-                        Color.accentColor.opacity(0.08),
+                        Color.accentColor.opacity(0.10),
                         Color(nsColor: .windowBackgroundColor)
                     ],
-                    startPoint: .top,
-                    endPoint: .bottom
+                    center: .center,
+                    startRadius: 30,
+                    endRadius: 350
                 )
                 
                 // Live 3D AVTView (clone: false keeps it bound to our mutable editingAvatar)
@@ -150,27 +164,44 @@ public struct MemojiEditorView: View {
                 )
                 .padding(16)
                 
-                // Interaction hint at bottom
+                // Camera reset and navigation hints
                 VStack {
                     Spacer()
-                    HStack(spacing: 6) {
-                        Image(systemName: "hand.draw")
-                            .font(.system(size: 10))
-                        Text("Drag to rotate • Scroll to zoom")
-                            .font(.system(size: 10, weight: .medium))
+                    HStack(spacing: 8) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "hand.draw")
+                                .font(.system(size: 10))
+                            Text("Drag to rotate • Scroll to zoom")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(.secondary)
+                        
+                        Divider().frame(height: 10)
+                        
+                        Button(action: {
+                            previewPose = nil
+                            mutationId = UUID()
+                        }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .font(.system(size: 9))
+                                Text("Reset View")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .foregroundColor(.secondary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(.ultraThinMaterial)
                     .clipShape(Capsule())
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 10)
                 }
             }
             
             Divider()
             
-            // Quick Expression Tester Bar
+            // Expression Previewer Bar
             expressionBar
         }
     }
@@ -179,8 +210,8 @@ public struct MemojiEditorView: View {
     
     private var expressionBar: some View {
         HStack(spacing: 8) {
-            Text("Preview Expression:")
-                .font(.system(size: 11, weight: .medium))
+            Text("Preview:")
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.secondary)
             
             ScrollView(.horizontal, showsIndicators: false) {
@@ -189,27 +220,29 @@ public struct MemojiEditorView: View {
                     expressionChip(title: "Smile", emoji: "😄", pose: "big_happy")
                     expressionChip(title: "Wink", emoji: "😉", pose: "winking_face")
                     expressionChip(title: "Heart Eyes", emoji: "😍", pose: "smiling_face_with_heart-shaped_eyes")
-                    expressionChip(title: "Thinking", emoji: "🤔", pose: "thinking_face")
+                    expressionChip(title: "Think", emoji: "🤔", pose: "thinking_face")
                     expressionChip(title: "Thumbs Up", emoji: "👍", pose: "thumbs_up")
-                    expressionChip(title: "Mind Blown", emoji: "🤯", pose: "exploding_head")
+                    expressionChip(title: "Celebration", emoji: "🥳", pose: "face_with_party_horn")
                 }
                 .padding(.horizontal, 4)
                 .padding(.vertical, 2)
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor))
     }
     
     private func expressionChip(title: String, emoji: String, pose: String?) -> some View {
         let isSelected = previewPose == pose
         return Button(action: {
-            previewPose = pose
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                previewPose = pose
+            }
         }) {
             HStack(spacing: 4) {
                 Text(emoji)
-                    .font(.system(size: 12))
+                    .font(.system(size: 11))
                 Text(title)
                     .font(.system(size: 11, weight: isSelected ? .bold : .regular))
             }
@@ -255,16 +288,18 @@ public struct MemojiEditorView: View {
                 ForEach(CustomizerCategory.allCases) { category in
                     let isSelected = selectedCategory == category
                     Button(action: {
-                        selectedCategory = category
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                            selectedCategory = category
+                        }
                     }) {
                         HStack(spacing: 6) {
                             Image(systemName: category.iconName)
-                                .font(.system(size: 13))
+                                .font(.system(size: 12))
                             Text(category.title)
                                 .font(.system(size: 12, weight: isSelected ? .bold : .medium))
                         }
                         .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 7)
                         .background(isSelected ? Color.accentColor : Color.clear)
                         .foregroundColor(isSelected ? .white : .primary)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -273,7 +308,7 @@ public struct MemojiEditorView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
         }
         .background(Color(nsColor: .controlBackgroundColor))
     }
@@ -285,15 +320,17 @@ public struct MemojiEditorView: View {
         
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("\(selectedCategory.title) Color")
+                Text("\(selectedCategory.title) Tone / Color")
                     .font(.system(size: 13, weight: .bold))
                 
                 Spacer()
                 
                 if let active = activeColorName {
-                    Text(active)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+                    HStack(spacing: 4) {
+                        Text(active)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
             
@@ -304,6 +341,7 @@ public struct MemojiEditorView: View {
                         MemojiCustomizer.shared.apply(color: option, to: editingAvatar)
                         activeColorName = option.name
                         mutationId = UUID()
+                        hasUnsavedChanges = true
                     }) {
                         ZStack {
                             Circle()
@@ -341,6 +379,7 @@ public struct MemojiEditorView: View {
     private var presetsSection: some View {
         let allPresets = MemojiCustomizer.shared.availablePresets(for: selectedCategory)
         let filtered = filteredPresets(from: allPresets)
+        let hasNoneOption = allPresets.contains { $0.id.lowercased() == "none" }
         
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -351,18 +390,37 @@ public struct MemojiEditorView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
+                // "Remove / None" quick button if applicable
+                if hasNoneOption && activePresetId?.lowercased() != "none" {
+                    Button(action: clearCurrentCategoryPreset) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9))
+                            Text("Remove")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.12))
+                        .foregroundColor(.secondary)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove \(selectedCategory.title)")
+                }
+                
                 Spacer()
                 
-                // Search bar if category has more than 8 presets
-                if allPresets.count > 8 {
+                // Search bar if category has more than 6 presets
+                if allPresets.count > 6 {
                     HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
-                        TextField("Filter...", text: $searchText)
+                        TextField("Filter styles...", text: $searchText)
                             .textFieldStyle(.plain)
                             .font(.system(size: 11))
-                            .frame(width: 120)
+                            .frame(width: 110)
                         
                         if !searchText.isEmpty {
                             Button(action: { searchText = "" }) {
@@ -399,11 +457,12 @@ public struct MemojiEditorView: View {
                             MemojiCustomizer.shared.apply(preset: preset, to: editingAvatar)
                             activePresetId = preset.id
                             mutationId = UUID()
+                            hasUnsavedChanges = true
                         }) {
                             HStack(spacing: 8) {
                                 if preset.id.lowercased() == "none" {
                                     Image(systemName: "slash.circle")
-                                        .font(.system(size: 13))
+                                        .font(.system(size: 12))
                                         .foregroundColor(isSelected ? .white : .secondary)
                                 }
                                 
@@ -457,7 +516,27 @@ public struct MemojiEditorView: View {
     private func randomizeAvatar() {
         MemojiCustomizer.shared.randomize(memoji: editingAvatar)
         mutationId = UUID()
+        hasUnsavedChanges = true
         syncActiveSelections()
+    }
+    
+    private func revertChanges() {
+        let freshClone = AvatarKitBridge.shared.cloneAvatar(initialAvatar) ?? initialAvatar
+        self.editingAvatar = freshClone
+        self.avatarName = initialName
+        self.hasUnsavedChanges = false
+        self.mutationId = UUID()
+        syncActiveSelections()
+    }
+    
+    private func clearCurrentCategoryPreset() {
+        let presets = MemojiCustomizer.shared.availablePresets(for: selectedCategory)
+        if let nonePreset = presets.first(where: { $0.id.lowercased() == "none" }) {
+            MemojiCustomizer.shared.apply(preset: nonePreset, to: editingAvatar)
+            activePresetId = nonePreset.id
+            mutationId = UUID()
+            hasUnsavedChanges = true
+        }
     }
     
     private func checkmarkColor(for color: NSColor) -> Color {
