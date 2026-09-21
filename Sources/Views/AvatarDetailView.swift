@@ -102,6 +102,8 @@ public struct AvatarDetailView: View {
                         StickersGridView(
                             stickers: stickers,
                             avatar: avatarObject,
+                            activePoseName: activePoseName,
+                            mutationId: stageMutationId,
                             isAnimoji: isAnimoji,
                             animojiName: animojiName,
                             onSelectPose: { pose in
@@ -301,7 +303,10 @@ public struct AvatarDetailView: View {
                         Divider().frame(height: 12)
                         
                         // Randomize button if editable
-                        Button(action: onRandomizeRequested) {
+                        Button(action: {
+                            onRandomizeRequested()
+                            stageMutationId = UUID()
+                        }) {
                             Image(systemName: "dice")
                                 .font(.system(size: 11))
                         }
@@ -400,38 +405,27 @@ public struct AvatarDetailView: View {
     private var quickPoseBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                Button(action: { activePoseName = nil }) {
-                    Text("Neutral")
-                        .font(.system(size: 11, weight: activePoseName == nil ? .bold : .medium))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(activePoseName == nil ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
-                        .foregroundColor(activePoseName == nil ? .white : .primary)
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
+                MiniNeutralPill(
+                    avatar: avatarObject,
+                    isSelected: activePoseName == nil,
+                    mutationId: stageMutationId,
+                    onSelect: { activePoseName = nil }
+                )
                 
                 ForEach(stickers.prefix(30)) { sticker in
-                    let isSelected = activePoseName == sticker.name
-                    Button(action: {
-                        activePoseName = sticker.name
-                    }) {
-                        HStack(spacing: 4) {
-                            Text(sticker.emoji)
-                            Text(sticker.localizedTitle)
-                                .font(.system(size: 11, weight: isSelected ? .bold : .medium))
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(isSelected ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
-                        .foregroundColor(isSelected ? .white : .primary)
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
+                    MiniPosePill(
+                        sticker: sticker,
+                        avatar: avatarObject,
+                        isAnimoji: isAnimoji,
+                        animojiName: animojiName,
+                        isSelected: activePoseName == sticker.name,
+                        mutationId: stageMutationId,
+                        onSelect: { activePoseName = sticker.name }
+                    )
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
         }
         .background(Color(nsColor: .windowBackgroundColor))
     }
@@ -528,6 +522,108 @@ public struct AvatarDetailView: View {
         let picker = NSSharingServicePicker(items: [tempURL])
         if let window = NSApplication.shared.keyWindow, let contentView = window.contentView {
             picker.show(relativeTo: NSRect(x: contentView.bounds.midX, y: contentView.bounds.maxY - 40, width: 1, height: 1), of: contentView, preferredEdge: .maxY)
+        }
+    }
+}
+
+private struct MiniNeutralPill: View {
+    let avatar: AnyObject?
+    let isSelected: Bool
+    let mutationId: UUID
+    let onSelect: () -> Void
+    
+    @State private var thumbnail: NSImage?
+    
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 6) {
+                if let img = thumbnail {
+                    Image(nsImage: img)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 18, height: 18)
+                        .clipShape(Circle())
+                } else {
+                    Image(systemName: "face.smiling")
+                        .font(.system(size: 11))
+                }
+                
+                Text("Neutral")
+                    .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(isSelected ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
+            .foregroundColor(isSelected ? .white : .primary)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.06), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .task(id: "\(mutationId.uuidString)_\(avatar != nil ? UInt(bitPattern: ObjectIdentifier(avatar!)) : 0)") {
+            if let avatar = avatar {
+                thumbnail = AvatarKitBridge.shared.snapshot(avatar: avatar, size: CGSize(width: 60, height: 60), scale: 1.5)
+            }
+        }
+    }
+}
+
+private struct MiniPosePill: View {
+    let sticker: StickerItem
+    let avatar: AnyObject?
+    let isAnimoji: Bool
+    let animojiName: String?
+    let isSelected: Bool
+    let mutationId: UUID
+    let onSelect: () -> Void
+    
+    @State private var thumbnail: NSImage?
+    
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 6) {
+                if let img = thumbnail {
+                    Image(nsImage: img)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 18, height: 18)
+                        .clipShape(Circle())
+                } else {
+                    Text(sticker.emoji)
+                        .font(.system(size: 11))
+                }
+                
+                Text(sticker.localizedTitle)
+                    .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(isSelected ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
+            .foregroundColor(isSelected ? .white : .primary)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.06), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .task(id: "\(sticker.name)_\(mutationId.uuidString)_\(avatar != nil ? UInt(bitPattern: ObjectIdentifier(avatar!)) : 0)") {
+            if let avatar = avatar {
+                if let img = await AvatarKitBridge.shared.generateSticker(
+                    avatar: avatar,
+                    poseName: sticker.name,
+                    animojiNamed: isAnimoji ? animojiName : nil,
+                    scale: 1.0
+                ) {
+                    thumbnail = img
+                    return
+                }
+            }
+            if let url = sticker.localFileURL, let img = NSImage(contentsOf: url) {
+                thumbnail = img
+            }
         }
     }
 }

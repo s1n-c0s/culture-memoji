@@ -4,6 +4,8 @@ import AppKit
 public struct StickerCellView: View {
     public let sticker: StickerItem
     public let avatar: AnyObject?
+    public let isSelected: Bool
+    public let mutationId: UUID?
     public let isAnimoji: Bool
     public let animojiName: String?
     public let onSelectPose: (String) -> Void
@@ -17,6 +19,8 @@ public struct StickerCellView: View {
     public init(
         sticker: StickerItem,
         avatar: AnyObject?,
+        isSelected: Bool = false,
+        mutationId: UUID? = nil,
         isAnimoji: Bool = false,
         animojiName: String? = nil,
         onSelectPose: @escaping (String) -> Void,
@@ -25,6 +29,8 @@ public struct StickerCellView: View {
     ) {
         self.sticker = sticker
         self.avatar = avatar
+        self.isSelected = isSelected
+        self.mutationId = mutationId
         self.isAnimoji = isAnimoji
         self.animojiName = animojiName
         self.onSelectPose = onSelectPose
@@ -38,17 +44,17 @@ public struct StickerCellView: View {
             ZStack {
                 // Background surface
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .fill(isSelected ? Color.accentColor.opacity(0.06) : Color(nsColor: .controlBackgroundColor))
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
                             .stroke(
-                                isHovered ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.04),
-                                lineWidth: isHovered ? 1.0 : 0.5
+                                isSelected ? Color.accentColor : (isHovered ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.04)),
+                                lineWidth: isSelected ? 2.0 : (isHovered ? 1.0 : 0.5)
                             )
                     )
                     .shadow(
-                        color: isHovered ? Color.black.opacity(0.07) : Color.black.opacity(0.02),
-                        radius: isHovered ? 6 : 2,
+                        color: isSelected ? Color.accentColor.opacity(0.12) : (isHovered ? Color.black.opacity(0.07) : Color.black.opacity(0.02)),
+                        radius: isSelected ? 6 : (isHovered ? 6 : 2),
                         x: 0,
                         y: isHovered ? 2 : 1
                     )
@@ -81,6 +87,31 @@ public struct StickerCellView: View {
                     .clipShape(Capsule())
                     .shadow(radius: 3)
                     .transition(.scale.combined(with: .opacity))
+                }
+                
+                // Active / Selected Badge
+                if isSelected {
+                    VStack {
+                        HStack {
+                            HStack(spacing: 3) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 8.5))
+                                Text("ACTIVE")
+                                    .font(.system(size: 8, weight: .bold))
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2.5)
+                            .background(Color.accentColor)
+                            .foregroundColor(.white)
+                            .clipShape(Capsule())
+                            .shadow(color: Color.accentColor.opacity(0.35), radius: 3, x: 0, y: 1)
+                            
+                            Spacer()
+                        }
+                        .padding(6)
+                        
+                        Spacer()
+                    }
                 }
                 
                 // Minimal Hover Actions (Top-right)
@@ -188,12 +219,13 @@ public struct StickerCellView: View {
                 Text(sticker.emoji)
                     .font(.system(size: 11))
                 Text(sticker.localizedTitle)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                    .foregroundColor(isSelected ? .accentColor : .primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
         }
-        .task(id: "\(sticker.id)_\(avatar != nil ? UInt(bitPattern: ObjectIdentifier(avatar!)) : 0)") {
+        .task(id: "\(sticker.id)_\(mutationId?.uuidString ?? "")_\(avatar != nil ? UInt(bitPattern: ObjectIdentifier(avatar!)) : 0)") {
             await loadImage()
         }
     }
@@ -202,23 +234,37 @@ public struct StickerCellView: View {
     
     @MainActor
     private func loadImage() async {
-        // 1. Try on-disk pre-rendered sticker PNG (fast, high-resolution)
+        // 1. If live avatar is available, render dynamically using native AVTStickerGenerator
+        // This ensures expressions, hair, accessories, and colors match the current model 100%
+        if let avatar = avatar {
+            if let snap = await AvatarKitBridge.shared.generateSticker(
+                avatar: avatar,
+                poseName: sticker.name,
+                animojiNamed: isAnimoji ? animojiName : nil,
+                scale: 2.0
+            ) {
+                self.loadedImage = snap
+                return
+            }
+        }
+        
+        // 2. Fall back to on-disk pre-rendered sticker PNG if live generation fails or no avatar
         if let fileURL = sticker.localFileURL,
            let image = NSImage(contentsOf: fileURL) {
             self.loadedImage = image
             return
         }
         
-        // 2. Fall back: render a live posed snapshot via AvatarKit
-        guard let avatar = avatar else { return }
-        let snap = AvatarKitBridge.shared.snapshot(
-            avatar: avatar,
-            poseName: sticker.name,
-            animojiNamed: isAnimoji ? animojiName : nil,
-            size: CGSize(width: 320, height: 320)
-        )
-        if let snap = snap {
-            self.loadedImage = snap
+        // 3. Fall back: synchronous snapshot via AvatarKitBridge
+        if let avatar = avatar {
+            if let snap = AvatarKitBridge.shared.snapshot(
+                avatar: avatar,
+                poseName: sticker.name,
+                animojiNamed: isAnimoji ? animojiName : nil,
+                size: CGSize(width: 320, height: 320)
+            ) {
+                self.loadedImage = snap
+            }
         }
     }
     

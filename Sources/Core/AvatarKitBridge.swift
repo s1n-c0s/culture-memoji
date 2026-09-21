@@ -19,6 +19,8 @@ public final class AvatarKitBridge {
     private var avtViewClass: AnyClass?
     private var avtRecordViewClass: AnyClass?
     private var avtStickerConfigurationClass: AnyClass?
+    private var avtStickerGeneratorClass: AnyClass?
+    private var avtStickerGeneratorOptionsClass: AnyClass?
     
     private init() {
         loadFrameworksIfNeeded()
@@ -37,6 +39,8 @@ public final class AvatarKitBridge {
             avtViewClass = NSClassFromString("AVTView")
             avtRecordViewClass = NSClassFromString("AVTRecordView")
             avtStickerConfigurationClass = NSClassFromString("AVTStickerConfiguration")
+            avtStickerGeneratorClass = NSClassFromString("AVTStickerGenerator")
+            avtStickerGeneratorOptionsClass = NSClassFromString("AVTStickerGeneratorOptions")
             return true
         }
         return false
@@ -461,16 +465,114 @@ public final class AvatarKitBridge {
         return nil
     }
     
-    // Reusable offscreen view and sticker cache for fast posed sticker snapshots
-    private var reusableSnapshotView: NSView?
+    // Active sticker generator and cache for fast, high-fidelity posed sticker rendering
+    private var currentGenerator: (avatarId: ObjectIdentifier, generator: AnyObject)?
     private let posedStickerCache = NSCache<NSString, NSImage>()
     
-    /// Clears cached posed sticker images (e.g. after customizing an avatar)
+    /// Clears cached posed sticker images (e.g. after customizing or randomizing an avatar)
     public func clearPosedStickerCache() {
         posedStickerCache.removeAllObjects()
+        currentGenerator = nil
     }
     
-    /// Snapshots an avatar in a specific sticker pose with transparent background
+    /// Retrieves or initializes a native AVTStickerGenerator for the given avatar
+    private func stickerGenerator(for avatar: AnyObject) -> AnyObject? {
+        let avatarId = ObjectIdentifier(avatar)
+        if let current = currentGenerator, current.avatarId == avatarId {
+            return current.generator
+        }
+        
+        guard let genCls = avtStickerGeneratorClass else { return nil }
+        let allocSel = NSSelectorFromString("alloc")
+        guard (genCls as AnyObject).responds(to: allocSel),
+              let uninit = (genCls as AnyObject).perform(allocSel)?.takeUnretainedValue() else { return nil }
+        
+        let initSel = NSSelectorFromString("initWithAvatar:")
+        guard let initMethod = class_getInstanceMethod(genCls, initSel) else { return nil }
+        typealias InitFunc = @convention(c) (AnyObject, Selector, AnyObject) -> AnyObject?
+        guard let gen = unsafeBitCast(method_getImplementation(initMethod), to: InitFunc.self)(uninit, initSel, avatar) else {
+            return nil
+        }
+        
+        currentGenerator = (avatarId, gen)
+        return gen
+    }
+    
+    /// Asynchronously generates a high-resolution posed sticker for the given avatar model.
+    /// Uses Apple's native AVTStickerGenerator so expressions, morphers, 3D props (birds, stars, clouds),
+    /// and tailored camera framing are rendered with 100% fidelity matching the current model.
+    public func generateSticker(
+        avatar: AnyObject,
+        poseName: String?,
+        animojiNamed: String? = nil,
+        scale: CGFloat = 2.0
+    ) async -> NSImage? {
+        guard let pose = poseName, !pose.isEmpty, pose != "neutral" else {
+            return snapshot(avatar: avatar, size: CGSize(width: 320, height: 320), scale: scale)
+        }
+        
+        let cacheKey = "\(UInt(bitPattern: ObjectIdentifier(avatar)))_\(pose)_\(animojiNamed ?? "memoji")_\(Int(scale * 100))" as NSString
+        if let cached = posedStickerCache.object(forKey: cacheKey) {
+            return cached
+        }
+        
+        guard let cfg = stickerConfiguration(named: pose, animojiNamed: animojiNamed) else {
+            return snapshot(avatar: avatar, size: CGSize(width: 320, height: 320), scale: scale)
+        }
+        
+        if let gen = stickerGenerator(for: avatar) {
+            let genCls: AnyClass = type(of: gen)
+            
+            // 1. High-DPI options with scale factor
+            if let optCls = avtStickerGeneratorOptionsClass {
+                let defaultOptSel = NSSelectorFromString("defaultOptions")
+                if let options = (optCls as AnyObject).perform(defaultOptSel)?.takeUnretainedValue() {
+                    (options as AnyObject).setValue(scale, forKey: "scaleFactor")
+                    (options as AnyObject).setValue(scale, forKey: "sizeMultiplier")
+                    
+                    let optGenSel = NSSelectorFromString("stickerImageWithConfiguration:options:completionHandler:")
+                    if gen.responds(to: optGenSel),
+                       let method = class_getInstanceMethod(genCls, optGenSel) {
+                        typealias OptGenFunc = @convention(c) (AnyObject, Selector, AnyObject, AnyObject, (@convention(block) (AnyObject?) -> Void)?) -> Void
+                        let callable = unsafeBitCast(method_getImplementation(method), to: OptGenFunc.self)
+                        
+                        let img: NSImage? = await withCheckedContinuation { continuation in
+                            callable(gen, optGenSel, cfg, options, { result in
+                                continuation.resume(returning: result as? NSImage)
+                            })
+                        }
+                        if let img = img {
+                            posedStickerCache.setObject(img, forKey: cacheKey)
+                            return img
+                        }
+                    }
+                }
+            }
+            
+            // 2. Standard sticker generator
+            let genSel = NSSelectorFromString("stickerImageWithConfiguration:completionHandler:")
+            if gen.responds(to: genSel),
+               let method = class_getInstanceMethod(genCls, genSel) {
+                typealias GenFunc = @convention(c) (AnyObject, Selector, AnyObject, (@convention(block) (AnyObject?) -> Void)?) -> Void
+                let callable = unsafeBitCast(method_getImplementation(method), to: GenFunc.self)
+                
+                let img: NSImage? = await withCheckedContinuation { continuation in
+                    callable(gen, genSel, cfg, { result in
+                        continuation.resume(returning: result as? NSImage)
+                    })
+                }
+                if let img = img {
+                    posedStickerCache.setObject(img, forKey: cacheKey)
+                    return img
+                }
+            }
+        }
+        
+        return snapshot(avatar: avatar, size: CGSize(width: 320, height: 320), scale: scale)
+    }
+    
+    /// Synchronously snapshots an avatar in a specific sticker pose.
+    /// Checks memory cache first, or generates via AVTStickerGenerator.
     public func snapshot(
         avatar: AnyObject,
         poseName: String?,
@@ -481,50 +583,46 @@ public final class AvatarKitBridge {
             return snapshot(avatar: avatar, size: size, scale: 2.0)
         }
         
-        // Check cache first (instant)
         let cacheKey = "\(UInt(bitPattern: ObjectIdentifier(avatar)))_\(pose)_\(animojiNamed ?? "memoji")_\(Int(size.width))" as NSString
         if let cached = posedStickerCache.object(forKey: cacheKey) {
             return cached
         }
         
-        guard let cfg = stickerConfiguration(named: pose, animojiNamed: animojiNamed),
-              let viewCls = avtViewClass as? NSView.Type else {
+        // Also check scale 200 cache key from generateSticker
+        let genKey = "\(UInt(bitPattern: ObjectIdentifier(avatar)))_\(pose)_\(animojiNamed ?? "memoji")_200" as NSString
+        if let cached = posedStickerCache.object(forKey: genKey) {
+            return cached
+        }
+        
+        guard let cfg = stickerConfiguration(named: pose, animojiNamed: animojiNamed) else {
             return snapshot(avatar: avatar, size: size, scale: 2.0)
         }
         
-        // Lazy-create or reuse the offscreen snapshot AVTView
-        let view: NSView
-        if let existing = reusableSnapshotView {
-            view = existing
-            if view.frame.size != size {
-                view.frame = NSRect(origin: .zero, size: size)
+        if let gen = stickerGenerator(for: avatar) {
+            let genCls: AnyClass = type(of: gen)
+            let genSel = NSSelectorFromString("stickerImageWithConfiguration:completionHandler:")
+            if gen.responds(to: genSel),
+               let method = class_getInstanceMethod(genCls, genSel) {
+                typealias GenFunc = @convention(c) (AnyObject, Selector, AnyObject, (@convention(block) (AnyObject?) -> Void)?) -> Void
+                let callable = unsafeBitCast(method_getImplementation(method), to: GenFunc.self)
+                
+                var rendered: NSImage?
+                var isDone = false
+                callable(gen, genSel, cfg, { result in
+                    rendered = result as? NSImage
+                    isDone = true
+                })
+                
+                let start = Date()
+                while !isDone && Date().timeIntervalSince(start) < 0.6 {
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+                }
+                
+                if let img = rendered {
+                    posedStickerCache.setObject(img, forKey: cacheKey)
+                    return img
+                }
             }
-        } else {
-            view = viewCls.init(frame: NSRect(origin: .zero, size: size))
-            reusableSnapshotView = view
-        }
-        
-        setAvatar(avatar, on: view, clone: false)
-        
-        let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")
-        if view.responds(to: transSel),
-           let method = class_getInstanceMethod(type(of: view), transSel) {
-            typealias TransFunc = @convention(c) (AnyObject, Selector, AnyObject?, Double, (@convention(block) () -> Void)?) -> Void
-            let callable = unsafeBitCast(method_getImplementation(method), to: TransFunc.self)
-            callable(view, transSel, cfg, 0.0, nil)
-        }
-        
-        let snapSel = NSSelectorFromString("snapshotWithSize:")
-        guard view.responds(to: snapSel),
-              let method = class_getInstanceMethod(type(of: view), snapSel) else {
-            return snapshot(avatar: avatar, size: size, scale: 2.0)
-        }
-        
-        typealias SnapFunc = @convention(c) (AnyObject, Selector, CGSize) -> AnyObject?
-        let callable = unsafeBitCast(method_getImplementation(method), to: SnapFunc.self)
-        if let rendered = callable(view, snapSel, size) as? NSImage {
-            posedStickerCache.setObject(rendered, forKey: cacheKey)
-            return rendered
         }
         
         return snapshot(avatar: avatar, size: size, scale: 2.0)

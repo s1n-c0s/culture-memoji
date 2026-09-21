@@ -28,6 +28,8 @@ public enum GridDensity: String, CaseIterable, Identifiable {
 public struct StickersGridView: View {
     public let stickers: [StickerItem]
     public let avatar: AnyObject?
+    public let activePoseName: String?
+    public let mutationId: UUID?
     public let isAnimoji: Bool
     public let animojiName: String?
     public let onSelectPose: (String) -> Void
@@ -44,12 +46,16 @@ public struct StickersGridView: View {
     public init(
         stickers: [StickerItem],
         avatar: AnyObject?,
+        activePoseName: String? = nil,
+        mutationId: UUID? = nil,
         isAnimoji: Bool = false,
         animojiName: String? = nil,
         onSelectPose: @escaping (String) -> Void
     ) {
         self.stickers = stickers
         self.avatar = avatar
+        self.activePoseName = activePoseName
+        self.mutationId = mutationId
         self.isAnimoji = isAnimoji
         self.animojiName = animojiName
         self.onSelectPose = onSelectPose
@@ -231,6 +237,8 @@ public struct StickersGridView: View {
                         StickerCellView(
                             sticker: sticker,
                             avatar: avatar,
+                            isSelected: activePoseName == sticker.name,
+                            mutationId: mutationId,
                             isAnimoji: isAnimoji,
                             animojiName: animojiName,
                             onSelectPose: onSelectPose,
@@ -316,15 +324,15 @@ public struct StickersGridView: View {
         
         var exportList: [(name: String, image: NSImage)] = []
         for sticker in stickers {
-            if let url = sticker.localFileURL, let img = NSImage(contentsOf: url) {
+            if let avatar = avatar,
+               let img = AvatarKitBridge.shared.snapshot(
+                avatar: avatar,
+                poseName: sticker.name,
+                animojiNamed: isAnimoji ? animojiName : nil,
+                size: CGSize(width: 512, height: 512)
+               ) {
                 exportList.append((sticker.name, img))
-            } else if let avatar = avatar,
-                      let img = AvatarKitBridge.shared.snapshot(
-                        avatar: avatar,
-                        poseName: sticker.name,
-                        animojiNamed: isAnimoji ? animojiName : nil,
-                        size: CGSize(width: 512, height: 512)
-                      ) {
+            } else if let url = sticker.localFileURL, let img = NSImage(contentsOf: url) {
                 exportList.append((sticker.name, img))
             }
         }

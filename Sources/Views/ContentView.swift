@@ -353,7 +353,10 @@ public struct ContentView: View {
             return
         }
         
+        AvatarKitBridge.shared.clearPosedStickerCache()
+        
         if let existing = editorTargetItem {
+            avatarStickers.removeValue(forKey: existing.id)
             switch existing.sourceType {
             case .customMemoji(let id):
                 let updated = AvatarDatabaseReader.shared.saveCustomMemoji(name: name, data: data, existingId: id)
@@ -361,6 +364,7 @@ public struct ContentView: View {
                     customMemojis[idx] = updated
                 }
                 avatarObjects[id] = savedAvatar
+                loadStickers(for: updated)
                 selectedAvatarId = id
                 showToast("Updated '\(name)'")
                 
@@ -371,6 +375,9 @@ public struct ContentView: View {
                     userMemojis[idx].displayName = name
                 }
                 avatarObjects[existing.id] = savedAvatar
+                // Always load dynamic sticker items so old disk PNGs don't override the edited model
+                let names = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
+                avatarStickers[existing.id] = makeStickerItems(from: names, prefix: existing.id)
                 selectedAvatarId = existing.id
                 showToast("Updated system Memoji '\(name)'")
                 
@@ -454,6 +461,13 @@ public struct ContentView: View {
         let randSel = NSSelectorFromString("randomize")
         guard (avatar as AnyObject).responds(to: randSel) else { return }
         _ = (avatar as AnyObject).perform(randSel)
+        
+        // Clear cached stickers & generator for the randomized model
+        AvatarKitBridge.shared.clearPosedStickerCache()
+        
+        // Use live dynamic stickers (no stale disk cache for randomized appearance)
+        let names = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
+        avatarStickers[item.id] = makeStickerItems(from: names, prefix: item.id)
         
         let savedId = selectedAvatarId
         selectedAvatarId = nil
