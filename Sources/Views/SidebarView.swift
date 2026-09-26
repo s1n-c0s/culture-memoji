@@ -139,11 +139,11 @@ public struct SidebarView: View {
     
     public var body: some View {
         VStack(spacing: 0) {
-            // Top Section (Tabs, Action Bar, Search)
+            // Top Section (Action Bar, Filter, Search)
             sidebarHeader
                 .padding(.horizontal, 18)
-                .padding(.top, 18)
-                .padding(.bottom, 12)
+                .padding(.top, 16)
+                .padding(.bottom, 10)
             
             // Content Area (Characters or Emotes Grid/List)
             ScrollView {
@@ -165,15 +165,15 @@ public struct SidebarView: View {
                 return true
             }
             
-            // Bottom Section (Centered 2x2 Grid and 2-Row List View Mode Switcher)
+            // Bottom Section (Character & Emote Tabs + View Mode Switcher)
             sidebarFooter
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(.vertical, 10)
                 .background(
                     AppTheme.sidebarBackground
                         .overlay(
                             Rectangle()
-                                .fill(Color.primary.opacity(0.05))
+                                .fill(Color.primary.opacity(0.06))
                                 .frame(height: 1),
                             alignment: .top
                         )
@@ -207,18 +207,18 @@ public struct SidebarView: View {
         }
     }
     
-    // MARK: - Header (Tabs + Subheader Action Row + Search)
+    // MARK: - Header (Action Row + Search)
     
     private var sidebarHeader: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Row 1: Segmented Pill Tab Bar (Character & Emote) + Collapse Sidebar Button
+        VStack(alignment: .leading, spacing: 10) {
+            // Row 1: Collapse Button + Action Buttons (New Character & Select / Filter Menu) + Search
             HStack(spacing: 8) {
                 if let toggle = onToggleSidebar {
                     Button(action: toggle) {
                         Image(systemName: "sidebar.leading")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.secondary)
-                            .frame(width: 32, height: 32)
+                            .frame(width: 30, height: 30)
                             .background(Color.primary.opacity(0.06))
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                             .overlay(
@@ -230,79 +230,19 @@ public struct SidebarView: View {
                     .help("Collapse Sidebar (⌘\\)")
                 }
                 
-                HStack(spacing: 4) {
-                    // Character tab button
-                    Button(action: {
-                        currentTab = .character
-                    }) {
-                        HStack(spacing: 7) {
-                            Image(systemName: "person.crop.circle.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                            
-                            Text("Character")
-                                .font(.system(size: 13.5, weight: currentTab == .character ? .semibold : .medium))
-                        }
-                        .foregroundColor(currentTab == .character ? .primary : .secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(currentTab == .character ? Color(nsColor: .controlBackgroundColor) : Color.clear)
-                                .shadow(color: currentTab == .character ? Color.black.opacity(0.06) : Color.clear, radius: 4, y: 1.5)
-                        )
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    
-                    // Emote tab button
-                    Button(action: {
-                        currentTab = .emote
-                        if activePoseName == nil, let first = filteredEmotes.first {
-                            activePoseName = first.name
-                        }
-                    }) {
-                        HStack(spacing: 7) {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 13, weight: .semibold))
-                            
-                            Text("Emote")
-                                .font(.system(size: 13.5, weight: currentTab == .emote ? .semibold : .medium))
-                        }
-                        .foregroundColor(currentTab == .emote ? .primary : .secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(currentTab == .emote ? Color(nsColor: .controlBackgroundColor) : Color.clear)
-                                .shadow(color: currentTab == .emote ? Color.black.opacity(0.06) : Color.clear, radius: 4, y: 1.5)
-                        )
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .animation(.spring(response: 0.22, dampingFraction: 0.8), value: currentTab)
-                .padding(3)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.primary.opacity(0.06))
-                )
-            }
-            
-            // Row 2: Subheader (+ New Character & Select / Filter and Search icon)
-            HStack {
                 if currentTab == .character {
                     HStack(spacing: 6) {
                         // + New Character button
                         Button(action: onAddNewMemoji) {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 5) {
                                 Image(systemName: "plus")
-                                    .font(.system(size: 13, weight: .bold))
+                                    .font(.system(size: 12, weight: .bold))
                                 Text("New Character")
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.system(size: 12.5, weight: .medium))
                             }
                             .foregroundColor(.primary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5.5)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
                                     .fill(Color.primary.opacity(0.05))
@@ -326,13 +266,13 @@ public struct SidebarView: View {
                         }) {
                             HStack(spacing: 4) {
                                 Image(systemName: isSelectionMode ? "checkmark.circle.fill" : "checkmark.circle")
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(.system(size: 11.5, weight: .semibold))
                                 Text(isSelectionMode ? "Done" : "Select")
-                                    .font(.system(size: 12.5, weight: .medium))
+                                    .font(.system(size: 12, weight: .medium))
                             }
                             .foregroundColor(isSelectionMode ? .accentColor : .primary)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5.5)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
                                     .fill(isSelectionMode ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05))
@@ -363,14 +303,14 @@ public struct SidebarView: View {
                             Image(systemName: selectedEmoteCategory.iconName)
                                 .font(.system(size: 12))
                             Text(selectedEmoteCategory == .all ? "All Emotes" : selectedEmoteCategory.rawValue)
-                                .font(.system(size: 13.5, weight: .medium))
+                                .font(.system(size: 13, weight: .medium))
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundColor(.secondary)
                         }
                         .foregroundColor(.primary)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.primary.opacity(0.05))
@@ -400,7 +340,7 @@ public struct SidebarView: View {
                             .frame(width: 30, height: 30)
                         
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 12.5, weight: .semibold))
                             .foregroundColor(isSearchActive || !searchText.isEmpty ? Color.accentColor : Color.primary.opacity(0.7))
                     }
                 }
@@ -408,7 +348,7 @@ public struct SidebarView: View {
                 .help("Search (⌘F)")
             }
             
-            // Row 3: Collapsible Search TextField
+            // Row 2: Collapsible Search TextField
             if isSearchActive || !searchText.isEmpty {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
@@ -893,51 +833,117 @@ public struct SidebarView: View {
         }
     }
     
-    // MARK: - Footer (Grid & List View Mode Switcher)
+    // MARK: - Footer (Tabs & View Mode Switcher)
     
     private var sidebarFooter: some View {
-        HStack(spacing: 6) {
-            // 2x2 Grid View Mode Button
-            Button(action: {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                    viewMode = .grid
+        HStack(spacing: 8) {
+            // Character & Emote Tab Segmented Control
+            HStack(spacing: 4) {
+                // Character tab button
+                Button(action: {
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.8)) {
+                        currentTab = .character
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                        
+                        Text("Character")
+                            .font(.system(size: 12.5, weight: currentTab == .character ? .semibold : .medium))
+                    }
+                    .foregroundColor(currentTab == .character ? .primary : .secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7)
+                            .fill(currentTab == .character ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+                            .shadow(color: currentTab == .character ? Color.black.opacity(0.08) : Color.clear, radius: 3, y: 1)
+                    )
+                    .contentShape(Rectangle())
                 }
-            }) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(viewMode == .grid ? Color.primary.opacity(0.1) : Color.clear)
-                        .frame(width: 32, height: 26)
-                    
-                    Grid2x2Icon(isSelected: viewMode == .grid)
+                .buttonStyle(.plain)
+                
+                // Emote tab button
+                Button(action: {
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.8)) {
+                        currentTab = .emote
+                        if activePoseName == nil, let first = filteredEmotes.first {
+                            activePoseName = first.name
+                        }
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 13, weight: .semibold))
+                        
+                        Text("Emote")
+                            .font(.system(size: 12.5, weight: currentTab == .emote ? .semibold : .medium))
+                    }
+                    .foregroundColor(currentTab == .emote ? .primary : .secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7)
+                            .fill(currentTab == .emote ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+                            .shadow(color: currentTab == .emote ? Color.black.opacity(0.08) : Color.clear, radius: 3, y: 1)
+                    )
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-            .help("Grid View (2 columns)")
+            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: currentTab)
+            .padding(3)
+            .background(
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(Color.primary.opacity(0.06))
+            )
             
-            // 2-Row List View Mode Button
-            Button(action: {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                    viewMode = .list
+            // View Mode Switcher (2x2 Grid / 2-Row List)
+            HStack(spacing: 2) {
+                // 2x2 Grid View Mode Button
+                Button(action: {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                        viewMode = .grid
+                    }
+                }) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(viewMode == .grid ? Color.primary.opacity(0.1) : Color.clear)
+                            .frame(width: 28, height: 26)
+                        
+                        Grid2x2Icon(isSelected: viewMode == .grid)
+                    }
+                    .contentShape(Rectangle())
                 }
-            }) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(viewMode == .list ? Color.primary.opacity(0.1) : Color.clear)
-                        .frame(width: 32, height: 26)
-                    
-                    List2RowIcon(isSelected: viewMode == .list)
+                .buttonStyle(.plain)
+                .help("Grid View (2 columns)")
+                
+                // 2-Row List View Mode Button
+                Button(action: {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                        viewMode = .list
+                    }
+                }) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(viewMode == .list ? Color.primary.opacity(0.1) : Color.clear)
+                            .frame(width: 28, height: 26)
+                        
+                        List2RowIcon(isSelected: viewMode == .list)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .help("List View")
             }
-            .buttonStyle(.plain)
-            .help("List View")
+            .padding(3)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.primary.opacity(0.04))
+            )
         }
-        .padding(3)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.primary.opacity(0.04))
-        )
+        .padding(.horizontal, 14)
     }
 }
 
