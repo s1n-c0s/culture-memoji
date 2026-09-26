@@ -42,6 +42,7 @@ public struct AvatarDetailView: View {
     
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var stageController = StageViewController()
+    @ObservedObject private var faceTracker = FaceTrackingManager.shared
     @State private var isLiveCameraActive: Bool = false
     @State private var showCopiedFeedback: Bool = false
     @State private var isHoveringName: Bool = false
@@ -104,86 +105,106 @@ public struct AvatarDetailView: View {
                 handleDoubleTapResetAngle()
             }
             
-            // Full-Area 3D Viewport (fills full available area of stage without clipping)
+            // Full-Area 3D Viewport (always renders on stage, with real-time pose tracking when camera is active)
+            Avatar3DStageRepresentable(
+                avatarId: avatarItem.id,
+                avatar: avatarObject,
+                activePoseName: activePoseName,
+                isAnimoji: isAnimoji,
+                animojiName: animojiName,
+                clone: true,
+                mutationId: stageMutationId,
+                stageController: stageController,
+                onDoubleTap: handleDoubleTapResetAngle
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom, 130)
+            .contextMenu {
+                Button(action: copyAvatarToClipboard) {
+                    Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
+                }
+                
+                Button(action: { downloadAvatarImage(showSavePanel: false) }) {
+                    Label("Download Image", systemImage: "arrow.down.circle")
+                }
+                
+                Button(action: { downloadAvatarImage(showSavePanel: true) }) {
+                    Label("Save Image As...", systemImage: "square.and.arrow.down")
+                }
+                
+                Button(action: shareAvatar) {
+                    Label("Share Avatar...", systemImage: "square.and.arrow.up")
+                }
+                
+                Divider()
+                
+                Button(action: handleReset) {
+                    Label("Reset Camera Framing & Pose", systemImage: "arrow.counterclockwise")
+                }
+                
+                if avatarItem.isEditable {
+                    Button(action: onEditRequested) {
+                        Label("Customize 3D Memoji...", systemImage: "paintbrush")
+                    }
+                }
+            }
+            
+            // Live Camera Floating PiP Preview
             if isLiveCameraActive {
-                VStack(spacing: 12) {
-                    Spacer()
-                    LiveFaceMirrorRepresentable(avatar: avatarObject)
-                        .frame(maxWidth: 640, maxHeight: 540)
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18)
-                                .stroke(Color.primary.opacity(0.12), lineWidth: 1.5)
-                        )
-                        .shadow(color: Color.black.opacity(0.15), radius: 16, x: 0, y: 8)
-                    
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 7, height: 7)
-                        Text("Live Face-Tracking Active")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.secondary)
+                VStack {
+                    HStack {
+                        Spacer()
+                        liveTrackingCameraPiP
+                            .padding(.top, 60)
+                            .padding(.trailing, 22)
+                            .transition(.asymmetric(
+                                insertion: .scale(scale: 0.85).combined(with: .opacity),
+                                removal: .opacity
+                            ))
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                    
                     Spacer()
                 }
-                .padding(.bottom, 130)
-            } else {
-                Avatar3DStageRepresentable(
-                    avatarId: avatarItem.id,
-                    avatar: avatarObject,
-                    activePoseName: activePoseName,
-                    isAnimoji: isAnimoji,
-                    animojiName: animojiName,
-                    clone: true,
-                    mutationId: stageMutationId,
-                    stageController: stageController,
-                    onDoubleTap: handleDoubleTapResetAngle
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.bottom, 130)
-                .contextMenu {
-                    Button(action: copyAvatarToClipboard) {
-                        Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
-                    }
-                    
-                    Button(action: { downloadAvatarImage(showSavePanel: false) }) {
-                        Label("Download Image", systemImage: "arrow.down.circle")
-                    }
-                    
-                    Button(action: { downloadAvatarImage(showSavePanel: true) }) {
-                        Label("Save Image As...", systemImage: "square.and.arrow.down")
-                    }
-                    
-                    Button(action: shareAvatar) {
-                        Label("Share Avatar...", systemImage: "square.and.arrow.up")
-                    }
-                    
-                    Divider()
-                    
-                    Button(action: handleReset) {
-                        Label("Reset Camera Framing & Pose", systemImage: "arrow.counterclockwise")
-                    }
-                    
-                    if avatarItem.isEditable {
-                        Button(action: onEditRequested) {
-                            Label("Customize 3D Memoji...", systemImage: "paintbrush")
-                        }
-                    }
-                }
+            }
+            
+            // Camera Permission Denied Modal Alert
+            if isLiveCameraActive && faceTracker.permissionDenied {
+                cameraPermissionDeniedOverlay
             }
             
             // Floating Bottom Controls: Gesture Hint, Character Name, Action Buttons
             VStack(spacing: 8) {
                 Spacer()
                 
-                // Subtle gesture hint with Quick Reset
-                if !isLiveCameraActive {
+                // Subtle gesture hint with Quick Reset or Live Tracking Status
+                if isLiveCameraActive {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(faceTracker.isFaceDetected ? Color.green : Color.orange)
+                            .frame(width: 7, height: 7)
+                        Text(faceTracker.isFaceDetected ? "Live Face-Tracking Active" : "Detecting Face…")
+                            .font(.system(size: 10.5, weight: .medium))
+                        
+                        Text("•")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.secondary.opacity(0.35))
+                        
+                        Button(action: toggleLiveTracking) {
+                            Text("Stop Tracking")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundColor(.red.opacity(0.85))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .foregroundColor(.secondary.opacity(0.85))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule().stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.04), radius: 4, y: 1)
+                } else {
                     HStack(spacing: 6) {
                         Image(systemName: "hand.draw")
                             .font(.system(size: 10))
@@ -236,6 +257,19 @@ public struct AvatarDetailView: View {
                     .padding(.trailing, 22)
                 
                 Spacer()
+            }
+        }
+        .onDisappear {
+            if isLiveCameraActive {
+                faceTracker.stopTracking()
+                isLiveCameraActive = false
+            }
+        }
+        .onChange(of: avatarItem.id) { _, _ in
+            if isLiveCameraActive {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    faceTracker.startTracking(on: stageController.avtView)
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .copyCurrentAvatarRequested)) { _ in
@@ -299,11 +333,7 @@ public struct AvatarDetailView: View {
                 .help("Reset camera framing & neutral pose (⌘0)")
                 
                 // Live Camera Face-Tracking Toggle Button
-                Button(action: {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                        isLiveCameraActive.toggle()
-                    }
-                }) {
+                Button(action: toggleLiveTracking) {
                     LiveCameraIcon(size: 17, isActive: isLiveCameraActive)
                         .frame(width: 32, height: 32)
                         .background(isLiveCameraActive ? Color.green.opacity(0.15) : Color.primary.opacity(0.06))
@@ -311,7 +341,7 @@ public struct AvatarDetailView: View {
                         .overlay(Circle().stroke(isLiveCameraActive ? Color.green.opacity(0.6) : Color.primary.opacity(0.08), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .help(isLiveCameraActive ? "Switch back to 3D Stage" : "Live Camera Face-Tracking Mirror")
+                .help(isLiveCameraActive ? "Stop Camera Face-Tracking" : "Live Camera Face-Tracking Mirror")
                 
                 // Full Screen Toggle Button
                 Button(action: {
@@ -496,6 +526,142 @@ public struct AvatarDetailView: View {
             resetSpinDegrees -= 360
         }
         onCopiedNotification?("Facing angle centered")
+    }
+    
+    // MARK: - Live Camera Face-Tracking Controls
+    
+    private func toggleLiveTracking() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+            isLiveCameraActive.toggle()
+        }
+        if isLiveCameraActive {
+            faceTracker.startTracking(on: stageController.avtView)
+        } else {
+            faceTracker.stopTracking()
+            if let pose = activePoseName, !pose.isEmpty, pose != "neutral", let view = stageController.avtView {
+                AvatarKitBridge.shared.applyStickerPose(
+                    named: pose,
+                    to: view,
+                    animojiNamed: isAnimoji ? animojiName : nil,
+                    duration: 0.25
+                )
+            } else if let view = stageController.avtView {
+                AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.25)
+            }
+        }
+    }
+    
+    private var liveTrackingCameraPiP: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .top) {
+                CameraPreviewView(previewLayer: faceTracker.previewLayer)
+                    .frame(width: 192, height: 144)
+                    .background(Color.black)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                
+                if faceTracker.previewLayer == nil && !faceTracker.permissionDenied {
+                    VStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Starting Camera…")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white.opacity(0.8))
+                    }
+                    .frame(width: 192, height: 144)
+                    .background(Color.black.opacity(0.7))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                
+                // Top control bar inside PiP
+                HStack(spacing: 6) {
+                    HStack(spacing: 4.5) {
+                        Circle()
+                            .fill(faceTracker.isFaceDetected ? Color.green : Color.orange)
+                            .frame(width: 6, height: 6)
+                        Text(faceTracker.isFaceDetected ? "Tracking" : "Searching")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3.5)
+                    .background(Color.black.opacity(0.55))
+                    .clipShape(Capsule())
+                    
+                    Spacer()
+                    
+                    Button(action: toggleLiveTracking) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundColor(.white.opacity(0.9))
+                            .frame(width: 20, height: 20)
+                            .background(Color.black.opacity(0.55))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop Face-Tracking")
+                }
+                .padding(8)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
+        )
+        .shadow(color: Color.black.opacity(0.28), radius: 14, x: 0, y: 6)
+    }
+    
+    private var cameraPermissionDeniedOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    toggleLiveTracking()
+                }
+            
+            VStack(spacing: 16) {
+                Image(systemName: "camera.fill")
+                    .font(.system(size: 38))
+                    .foregroundColor(.orange)
+                    .padding(.top, 4)
+                
+                VStack(spacing: 6) {
+                    Text("Camera Access Required")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.primary)
+                    Text("Culture Memoji needs access to your Mac's camera to mirror your facial expressions in real-time onto your 3D avatar.")
+                        .font(.system(size: 12.5))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                }
+                
+                HStack(spacing: 12) {
+                    Button("Dismiss") {
+                        toggleLiveTracking()
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    Button("Open System Settings") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(.top, 4)
+            }
+            .padding(24)
+            .frame(width: 380)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.25), radius: 24, y: 12)
+        }
+        .transition(.opacity)
     }
     
     private func getProcessedAvatarSnapshot() -> NSImage? {

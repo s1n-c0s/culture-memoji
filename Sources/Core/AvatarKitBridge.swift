@@ -16,6 +16,7 @@ public final class AvatarKitBridge {
     private var avtAvatarClass: AnyClass?
     private var avtMemojiClass: AnyClass?
     private var avtAnimojiClass: AnyClass?
+    private var avtAvatarPoseClass: AnyClass?
     private var avtViewClass: AnyClass?
     private var avtRecordViewClass: AnyClass?
     private var avtStickerConfigurationClass: AnyClass?
@@ -36,6 +37,7 @@ public final class AvatarKitBridge {
             avtAvatarClass = NSClassFromString("AVTAvatar")
             avtMemojiClass = NSClassFromString("AVTMemoji")
             avtAnimojiClass = NSClassFromString("AVTAnimoji")
+            avtAvatarPoseClass = NSClassFromString("AVTAvatarPose")
             avtViewClass = NSClassFromString("AVTView")
             avtRecordViewClass = NSClassFromString("AVTRecordView")
             avtStickerConfigurationClass = NSClassFromString("AVTStickerConfiguration")
@@ -381,11 +383,73 @@ public final class AvatarKitBridge {
         })
     }
     
+    // MARK: - Real-Time Poses & Blend Shapes
+    
+    /// Returns the avatar model attached to the given AVTView or AVTRecordView
+    public func avatar(on view: NSView) -> AnyObject? {
+        let sel = NSSelectorFromString("avatar")
+        guard view.responds(to: sel) else { return nil }
+        return (view as AnyObject).perform(sel)?.takeUnretainedValue()
+    }
+    
+    /// Constructs a real-time AVTAvatarPose with blend shape weights (0.0...1.0) and optional neck rotation
+    public func buildAvatarPose(weights: [String: Double], neckOrientation: simd_quatf? = nil) -> AnyObject? {
+        guard let poseCls = avtAvatarPoseClass as? NSObject.Type else { return nil }
+        let pose = poseCls.init()
+        
+        let setWeightSel = NSSelectorFromString("setWeight:forBlendShapeNamed:")
+        if let method = class_getInstanceMethod(poseCls, setWeightSel) {
+            typealias SetWeightFunc = @convention(c) (AnyObject, Selector, Double, NSString) -> Void
+            let callable = unsafeBitCast(method_getImplementation(method), to: SetWeightFunc.self)
+            for (name, weight) in weights {
+                callable(pose, setWeightSel, weight, name as NSString)
+            }
+        }
+        
+        if let neckOrientation = neckOrientation {
+            let setNeckSel = NSSelectorFromString("setNeckOrientation:")
+            if let method = class_getInstanceMethod(poseCls, setNeckSel) {
+                typealias SetNeckFunc = @convention(c) (AnyObject, Selector, simd_quatf) -> Void
+                let callable = unsafeBitCast(method_getImplementation(method), to: SetNeckFunc.self)
+                callable(pose, setNeckSel, neckOrientation)
+            }
+        }
+        
+        return pose
+    }
+    
+    /// Sets an AVTAvatarPose directly on the avatar of the specified view
+    public func applyPose(_ pose: AnyObject, on view: NSView) {
+        guard let av = avatar(on: view) else { return }
+        let sel = NSSelectorFromString("setPose:")
+        if (av as AnyObject).responds(to: sel) {
+            _ = (av as AnyObject).perform(sel, with: pose)
+        }
+    }
+    
     /// Smoothly transitions back to neutral pose, restores canonical frontal camera framing,
     /// and stabilizes the camera controller axis so future rotations remain upright.
     public func resetToNeutralPose(on view: NSView, duration: Double = 0.25) {
         stabilizeCameraController(on: view)
         
+        // 1. Reset any blend shapes or neck orientation back to neutral pose
+        if let av = avatar(on: view), let poseCls = avtAvatarPoseClass as? NSObject.Type {
+            let neutralPose = poseCls.init()
+            let transSel = NSSelectorFromString("transitionToPose:duration:delay:completionHandler:")
+            if (av as AnyObject).responds(to: transSel),
+               let method = class_getInstanceMethod(type(of: av), transSel) {
+                typealias TransPoseFunc = @convention(c) (AnyObject, Selector, AnyObject, Double, Double, (@convention(block) () -> Void)?) -> Void
+                let callable = unsafeBitCast(method_getImplementation(method), to: TransPoseFunc.self)
+                callable(av, transSel, neutralPose, duration, 0.0, nil)
+            } else {
+                let setPoseSel = NSSelectorFromString("setPose:")
+                if (av as AnyObject).responds(to: setPoseSel) {
+                    _ = (av as AnyObject).perform(setPoseSel, with: neutralPose)
+                }
+            }
+        }
+        
+        // 2. Clear any active sticker configuration
         let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")
         guard view.responds(to: transSel),
               let method = class_getInstanceMethod(type(of: view), transSel) else { return }

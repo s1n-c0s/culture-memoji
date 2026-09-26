@@ -49,8 +49,8 @@ if [ -f "AppIcon.icns" ]; then
     cp "AppIcon.icns" "$APP_NAME/Contents/Resources/AppIcon.icns"
 fi
 
-echo "🔏 Signing app bundle..."
-codesign -s - --deep --force "$APP_NAME"
+echo "🔏 Signing app bundle with camera entitlements..."
+codesign -s - --deep --force --entitlements entitlements.plist "$APP_NAME"
 
 echo "✅ App bundle created successfully: $APP_NAME"
 echo "👉 You can run it now with: open $APP_NAME"
