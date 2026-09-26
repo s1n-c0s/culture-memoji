@@ -512,24 +512,28 @@ public final class AvatarKitBridge {
         return callable(avatar, sel, size, scale, nil) as? NSImage
     }
     
-    /// Snapshots the current 3D AVTView state
+    /// Snapshots the current 3D AVTView state exactly as visually rendered on screen
+    /// (preserving interactive camera rotation, zoom, camera framing, and active sticker props)
     public func snapshot(view: NSView, size: CGSize) -> NSImage? {
+        // 1. Live viewport Metal snapshot (VFXView.snapshot)
+        // This captures the exact interactive camera orientation, rotation, zoom, and active sticker props
+        let snapSel = NSSelectorFromString("snapshot")
+        if view.responds(to: snapSel),
+           let method = class_getInstanceMethod(type(of: view), snapSel) {
+            typealias LiveSnapFunc = @convention(c) (AnyObject, Selector) -> AnyObject?
+            let callable = unsafeBitCast(method_getImplementation(method), to: LiveSnapFunc.self)
+            if let img = callable(view, snapSel) as? NSImage {
+                return img
+            }
+        }
+        
+        // 2. Fallback to snapshotWithSize: if live viewport snapshot is not available
         let sel = NSSelectorFromString("snapshotWithSize:")
         if view.responds(to: sel),
            let method = class_getInstanceMethod(type(of: view), sel) {
             typealias SnapFunc = @convention(c) (AnyObject, Selector, CGSize) -> AnyObject?
             let callable = unsafeBitCast(method_getImplementation(method), to: SnapFunc.self)
             if let img = callable(view, sel, size) as? NSImage {
-                return img
-            }
-        }
-        
-        let snapSel = NSSelectorFromString("snapshot")
-        if view.responds(to: snapSel),
-           let method = class_getInstanceMethod(type(of: view), snapSel) {
-            typealias FallbackFunc = @convention(c) (AnyObject, Selector) -> AnyObject?
-            let callable = unsafeBitCast(method_getImplementation(method), to: FallbackFunc.self)
-            if let img = callable(view, snapSel) as? NSImage {
                 return img
             }
         }
