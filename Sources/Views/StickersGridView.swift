@@ -85,25 +85,35 @@ public struct StickersGridView: View {
                 gridContentArea
             }
             
-            // Floating Toast Notification HUD
+            // Floating Toast Notification HUD (Top-Center macOS HUD Style)
             if let toast = toastMessage {
                 VStack {
-                    Spacer()
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                            .font(.system(size: 13))
+                            .font(.system(size: 13, weight: .semibold))
                         Text(toast)
                             .font(.system(size: 12, weight: .semibold))
                     }
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .background(.ultraThickMaterial)
                     .clipShape(Capsule())
-                    .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                    .padding(.bottom, 20)
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.primary.opacity(0.09), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 4)
+                    .padding(.top, 14)
+                    
+                    Spacer()
                 }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(.asymmetric(
+                    insertion: .move(edge: .top).combined(with: .opacity),
+                    removal: .move(edge: .top).combined(with: .opacity)
+                ))
+                .zIndex(100)
+                .allowsHitTesting(false)
             }
         }
         .sheet(item: Binding(
@@ -310,7 +320,7 @@ public struct StickersGridView: View {
         }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_800_000_000)
-            withAnimation {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
                 if toastMessage == message {
                     toastMessage = nil
                 }

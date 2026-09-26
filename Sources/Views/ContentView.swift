@@ -189,30 +189,36 @@ public struct ContentView: View {
                     .background(AppTheme.stageBackground)
                 }
                 
-                // Floating App Toast Notification HUD
+                // Floating App Toast Notification HUD (Top-Center macOS HUD Style)
                 if let toast = toastMessage {
                     VStack {
-                        Spacer()
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
-                                .font(.system(size: 14))
+                                .font(.system(size: 13.5, weight: .semibold))
                             Text(toast)
                                 .font(.system(size: 12.5, weight: .semibold))
                                 .foregroundColor(.primary)
                         }
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 9)
+                        .padding(.vertical, 8.5)
                         .background(.ultraThickMaterial)
                         .clipShape(Capsule())
                         .overlay(
                             Capsule()
-                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                                .stroke(Color.primary.opacity(0.09), lineWidth: 1)
                         )
-                        .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 4)
-                        .padding(.bottom, 24)
+                        .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 4)
+                        .padding(.top, 18)
+                        
+                        Spacer()
                     }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .top).combined(with: .opacity),
+                        removal: .move(edge: .top).combined(with: .opacity)
+                    ))
+                    .zIndex(100)
+                    .allowsHitTesting(false)
                 }
             }
             .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
@@ -611,7 +617,7 @@ public struct ContentView: View {
         }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            withAnimation {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
                 if toastMessage == text {
                     toastMessage = nil
                 }
