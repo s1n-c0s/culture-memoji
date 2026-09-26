@@ -153,10 +153,10 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
                     named: pose,
                     to: avtView,
                     animojiNamed: isAnimoji ? animojiName : nil,
-                    duration: 0.35
+                    duration: 0.18
                 )
             } else {
-                AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.35)
+                AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.18)
             }
         }
     }

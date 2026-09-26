@@ -258,6 +258,83 @@ public final class AvatarDatabaseReader: Sendable {
         return results
     }
     
+    /// Finds all cached transparent PNG stickers on disk for an Apple built-in Animoji name
+    public func findCachedStickers(forAnimojiNamed name: String) -> [StickerItem] {
+        guard FileManager.default.fileExists(atPath: stickersDirectoryPath) else { return [] }
+        
+        var results: [StickerItem] = []
+        let fileManager = FileManager.default
+        guard let files = try? fileManager.contentsOfDirectory(atPath: stickersDirectoryPath) else { return [] }
+        
+        let prefix = "\(name.lowercased())_"
+        for file in files where file.hasSuffix(".png") && file.lowercased().hasPrefix(prefix) {
+            let fileURL = URL(fileURLWithPath: stickersDirectoryPath).appendingPathComponent(file)
+            
+            // Format: animojiName_AK<ver>_<stickerName>.png
+            let nameWithoutExtension = (file as NSString).deletingPathExtension
+            let parts = nameWithoutExtension.components(separatedBy: "_")
+            
+            let stickerName: String
+            if parts.count >= 3 {
+                stickerName = parts[2...].joined(separator: "_")
+            } else {
+                stickerName = nameWithoutExtension
+            }
+            
+            let (title, category, emoji) = metadata(forStickerName: stickerName)
+            
+            let sticker = StickerItem(
+                id: "animoji_\(name)_\(stickerName)",
+                name: stickerName,
+                localizedTitle: title,
+                category: category,
+                emoji: emoji,
+                localFileURL: fileURL
+            )
+            results.append(sticker)
+        }
+        
+        results.sort { $0.localizedTitle < $1.localizedTitle }
+        return results
+    }
+    
+    /// Directory for CultureMemoji generated stickers persistent cache
+    public var appStickerCacheDirectory: URL {
+        let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let dir = cachesURL.appendingPathComponent("CultureMemoji/Stickers")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+    
+    /// Finds all previously generated stickers saved in the app's persistent disk cache
+    public func findAppCachedStickers(forAvatarId avatarId: String) -> [StickerItem] {
+        let dir = appStickerCacheDirectory.appendingPathComponent(avatarId)
+        guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
+        
+        var results: [StickerItem] = []
+        let fileManager = FileManager.default
+        guard let files = try? fileManager.contentsOfDirectory(atPath: dir.path) else { return [] }
+        
+        for file in files where file.hasSuffix(".png") {
+            let fileURL = dir.appendingPathComponent(file)
+            let stickerName = (file as NSString).deletingPathExtension
+            let (title, category, emoji) = metadata(forStickerName: stickerName)
+            
+            let sticker = StickerItem(
+                id: "\(avatarId)_\(stickerName)",
+                name: stickerName,
+                localizedTitle: title,
+                category: category,
+                emoji: emoji,
+                localFileURL: fileURL
+            )
+            results.append(sticker)
+        }
+        
+        results.sort { $0.localizedTitle < $1.localizedTitle }
+        return results
+    }
+    
     /// Converts raw 32-hex characters to 8-4-4-4-12 UUID standard string
     private func formatUUID(_ raw: String) -> String {
         guard raw.count == 32 else { return raw }

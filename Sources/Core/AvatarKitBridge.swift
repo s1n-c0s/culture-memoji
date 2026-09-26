@@ -274,6 +274,7 @@ public final class AvatarKitBridge {
     
     /// The two packs that together cover all available Memoji/Animoji poses
     private let stickerPacks = ["stickers", "posesPack"]
+    private let stickerConfigCache = NSCache<NSString, AnyObject>()
     
     /// Lists all sticker names from BOTH the "stickers" and "posesPack" packs,
     /// deduped and in stable order (stickers first, posesPack after).
@@ -307,8 +308,13 @@ public final class AvatarKitBridge {
     }
     
     /// Loads a sticker configuration by name, searching both "stickers" and "posesPack".
-    /// Returns nil safely if not found in either pack.
+    /// Cached in memory for instant O(1) lookups on future pose switches.
     public func stickerConfiguration(named stickerName: String, animojiNamed: String? = nil) -> AnyObject? {
+        let cacheKey = "\(animojiNamed ?? "memoji")_\(stickerName)" as NSString
+        if let cached = stickerConfigCache.object(forKey: cacheKey) {
+            return cached
+        }
+        
         guard let cls = avtStickerConfigurationClass else { return nil }
         
         for pack in stickerPacks {
@@ -333,6 +339,7 @@ public final class AvatarKitBridge {
                 if (validCfg as AnyObject).responds(to: loadSel) {
                     _ = (validCfg as AnyObject).perform(loadSel)
                 }
+                stickerConfigCache.setObject(validCfg, forKey: cacheKey)
                 return validCfg
             }
         }
@@ -340,9 +347,18 @@ public final class AvatarKitBridge {
         return nil // Not found in any known pack
     }
     
+    /// Pre-warms sticker configurations in background so switching poses is completely lag-free
+    public func prewarmStickerConfigurations(forAnimojiNamed name: String?, stickerNames: [String]) {
+        Task(priority: .utility) { @MainActor [weak self] in
+            for stickerName in stickerNames.prefix(35) {
+                _ = self?.stickerConfiguration(named: stickerName, animojiNamed: name)
+            }
+        }
+    }
+    
     /// Smoothly transitions the 3D AVTView to a given sticker pose/expression,
     /// ensuring the camera rotation axis remains stable and upright.
-    public func applyStickerPose(named stickerName: String, to view: NSView, animojiNamed: String? = nil, duration: Double = 0.25) {
+    public func applyStickerPose(named stickerName: String, to view: NSView, animojiNamed: String? = nil, duration: Double = 0.18) {
         guard let cfg = stickerConfiguration(named: stickerName, animojiNamed: animojiNamed) else {
             return // Pose not found — silently skip to avoid crash
         }
@@ -364,7 +380,7 @@ public final class AvatarKitBridge {
     
     /// Smoothly transitions back to neutral pose, restores canonical frontal camera framing,
     /// and stabilizes the camera controller axis so future rotations remain upright.
-    public func resetToNeutralPose(on view: NSView, duration: Double = 0.25) {
+    public func resetToNeutralPose(on view: NSView, duration: Double = 0.18) {
         stabilizeCameraController(on: view)
         
         let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")
@@ -467,6 +483,9 @@ public final class AvatarKitBridge {
         return gen
     }
     
+    // Serial task chain to serialize AVTStickerGenerator operations and prevent GPU context collisions
+    private var stickerRenderChain: Task<NSImage?, Never>?
+
     /// Asynchronously generates a high-resolution posed sticker for the given avatar model.
     /// Uses Apple's native AVTStickerGenerator so expressions, morphers, 3D props (birds, stars, clouds),
     /// and tailored camera framing are rendered with 100% fidelity matching the current model.
@@ -474,7 +493,7 @@ public final class AvatarKitBridge {
         avatar: AnyObject,
         poseName: String?,
         animojiNamed: String? = nil,
-        scale: CGFloat = 2.0
+        scale: CGFloat = 1.0
     ) async -> NSImage? {
         guard let pose = poseName, !pose.isEmpty, pose != "neutral" else {
             return snapshot(avatar: avatar, size: CGSize(width: 320, height: 320), scale: scale)
@@ -489,8 +508,37 @@ public final class AvatarKitBridge {
             return snapshot(avatar: avatar, size: CGSize(width: 320, height: 320), scale: scale)
         }
         
+        // Serialize execution so multiple simultaneous thumbnail renders don't choke the Metal pipeline
+        let prev = stickerRenderChain
+        let currentTask = Task { @MainActor [weak self] () -> NSImage? in
+            _ = await prev?.value
+            guard let self = self else { return nil }
+            return await self.executeGenerateSticker(
+                avatar: avatar,
+                cfg: cfg,
+                cacheKey: cacheKey,
+                scale: scale
+            )
+        }
+        stickerRenderChain = currentTask
+        return await currentTask.value
+    }
+    
+    @MainActor
+    private func executeGenerateSticker(
+        avatar: AnyObject,
+        cfg: AnyObject,
+        cacheKey: NSString,
+        scale: CGFloat
+    ) async -> NSImage? {
+        if let cached = posedStickerCache.object(forKey: cacheKey) {
+            return cached
+        }
+        
         if let gen = stickerGenerator(for: avatar) {
             let genCls: AnyClass = type(of: gen)
+            nonisolated(unsafe) let unsafeGen = gen
+            nonisolated(unsafe) let unsafeCfg = cfg
             
             // 1. High-DPI options with scale factor
             if let optCls = avtStickerGeneratorOptionsClass {
@@ -498,6 +546,7 @@ public final class AvatarKitBridge {
                 if let options = (optCls as AnyObject).perform(defaultOptSel)?.takeUnretainedValue() {
                     (options as AnyObject).setValue(scale, forKey: "scaleFactor")
                     (options as AnyObject).setValue(scale, forKey: "sizeMultiplier")
+                    nonisolated(unsafe) let unsafeOptions = options
                     
                     let optGenSel = NSSelectorFromString("stickerImageWithConfiguration:options:completionHandler:")
                     if gen.responds(to: optGenSel),
@@ -506,7 +555,7 @@ public final class AvatarKitBridge {
                         let callable = unsafeBitCast(method_getImplementation(method), to: OptGenFunc.self)
                         
                         let img: NSImage? = await withCheckedContinuation { continuation in
-                            callable(gen, optGenSel, cfg, options, { result in
+                            callable(unsafeGen, optGenSel, unsafeCfg, unsafeOptions, { result in
                                 continuation.resume(returning: result as? NSImage)
                             })
                         }
@@ -526,7 +575,7 @@ public final class AvatarKitBridge {
                 let callable = unsafeBitCast(method_getImplementation(method), to: GenFunc.self)
                 
                 let img: NSImage? = await withCheckedContinuation { continuation in
-                    callable(gen, genSel, cfg, { result in
+                    callable(unsafeGen, genSel, unsafeCfg, { result in
                         continuation.resume(returning: result as? NSImage)
                     })
                 }

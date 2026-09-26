@@ -7,12 +7,24 @@ public final class ThumbnailCache: ObservableObject {
     
     private let cache = NSCache<NSString, NSImage>()
     
+    private let diskCacheDirectory: URL = {
+        let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let dir = cachesURL.appendingPathComponent("CultureMemoji/Stickers")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+    
     private init() {
-        cache.countLimit = 300
+        cache.countLimit = 600
     }
     
     public func cachedImage(forKey key: String) -> NSImage? {
         return cache.object(forKey: key as NSString)
+    }
+    
+    /// Synchronously returns an in-memory cached thumbnail for an emote (instant frame-0 render)
+    public func cachedEmoteThumbnail(for sticker: StickerItem) -> NSImage? {
+        return cache.object(forKey: "emote_\(sticker.id)" as NSString)
     }
     
     public func setImage(_ image: NSImage, forKey key: String) {
@@ -49,7 +61,7 @@ public final class ThumbnailCache: ObservableObject {
                 $0.name.lowercased().contains("smile")
             }) ?? diskStickers.first
             
-            if let url = neutralSticker?.localFileURL, let img = NSImage(contentsOf: url) {
+            if let url = neutralSticker?.localFileURL, let img = await loadDiskImage(at: url) {
                 cache.setObject(img, forKey: key as NSString)
                 return img
             }
@@ -81,25 +93,36 @@ public final class ThumbnailCache: ObservableObject {
         return nil
     }
     
-    /// Loads or generates a sticker thumbnail for an emote
+    /// Loads or generates a sticker thumbnail for an emote with persistent disk caching
     public func getEmoteThumbnail(
         sticker: StickerItem,
         avatarObject: AnyObject?,
         isAnimoji: Bool,
         animojiName: String?
     ) async -> NSImage? {
-        let key = "emote_\(sticker.id)_\(avatarObject != nil ? UInt(bitPattern: ObjectIdentifier(avatarObject!)) : 0)"
+        let key = "emote_\(sticker.id)"
         if let cached = cache.object(forKey: key as NSString) {
             return cached
         }
         
-        // 1. Check local file URL first
-        if let url = sticker.localFileURL, let img = NSImage(contentsOf: url) {
-            cache.setObject(img, forKey: key as NSString)
-            return img
+        // 1. Check local file URL first (Apple's disk stickers)
+        if let url = sticker.localFileURL {
+            if let img = await loadDiskImage(at: url) {
+                cache.setObject(img, forKey: key as NSString)
+                return img
+            }
         }
         
-        // 2. Dynamic generation
+        // 2. Check CultureMemoji persistent disk cache
+        let diskURL = diskCacheDirectory.appendingPathComponent("\(sticker.id).png")
+        if FileManager.default.fileExists(atPath: diskURL.path) {
+            if let img = await loadDiskImage(at: diskURL) {
+                cache.setObject(img, forKey: key as NSString)
+                return img
+            }
+        }
+        
+        // 3. Dynamic generation via serialized 3D sticker generator
         if let avatar = avatarObject {
             if let img = await AvatarKitBridge.shared.generateSticker(
                 avatar: avatar,
@@ -108,10 +131,49 @@ public final class ThumbnailCache: ObservableObject {
                 scale: 1.0
             ) {
                 cache.setObject(img, forKey: key as NSString)
+                saveDiskImage(img, to: diskURL)
                 return img
             }
         }
         
         return nil
+    }
+    
+    /// Pre-warms the first batch of emote thumbnails in the background
+    public func prewarmEmoteThumbnails(
+        stickers: [StickerItem],
+        avatarObject: AnyObject?,
+        isAnimoji: Bool,
+        animojiName: String?
+    ) {
+        Task {
+            for sticker in stickers.prefix(16) {
+                _ = await getEmoteThumbnail(
+                    sticker: sticker,
+                    avatarObject: avatarObject,
+                    isAnimoji: isAnimoji,
+                    animojiName: animojiName
+                )
+            }
+        }
+    }
+    
+    // MARK: - Non-blocking I/O Helpers
+    
+    private func loadDiskImage(at url: URL) async -> NSImage? {
+        await Task.detached(priority: .userInitiated) {
+            return NSImage(contentsOf: url)
+        }.value
+    }
+    
+    private func saveDiskImage(_ image: NSImage, to url: URL) {
+        Task.detached(priority: .utility) {
+            let parent = url.deletingLastPathComponent()
+            try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+            guard let tiff = image.tiffRepresentation,
+                  let rep = NSBitmapImageRep(data: tiff),
+                  let png = rep.representation(using: .png, properties: [:]) else { return }
+            try? png.write(to: url)
+        }
     }
 }

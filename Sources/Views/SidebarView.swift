@@ -204,6 +204,14 @@ public struct SidebarView: View {
                     withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
                         currentTab = .emote
                     }
+                    if let id = selectedAvatarId {
+                        ThumbnailCache.shared.prewarmEmoteThumbnails(
+                            stickers: filteredEmotes,
+                            avatarObject: avatarObjects[id],
+                            isAnimoji: isAnimoji,
+                            animojiName: animojiName
+                        )
+                    }
                 }) {
                     HStack(spacing: 7) {
                         Image(systemName: "sparkles")
@@ -431,8 +439,13 @@ public struct SidebarView: View {
     // MARK: - Emote Content
     
     private var emoteContent: some View {
-        Group {
-            if filteredEmotes.isEmpty {
+        let avatarObj = selectedAvatarId != nil ? avatarObjects[selectedAvatarId!] : nil
+        let animojiFlag = isAnimoji
+        let animojiVal = animojiName
+        let emotes = filteredEmotes
+        
+        return Group {
+            if emotes.isEmpty {
                 VStack(spacing: 12) {
                     Spacer(minLength: 40)
                     Image(systemName: "sparkles")
@@ -452,12 +465,12 @@ public struct SidebarView: View {
                 .frame(maxWidth: .infinity)
             } else if viewMode == .grid {
                 LazyVGrid(columns: gridColumns, spacing: 14) {
-                    ForEach(filteredEmotes) { sticker in
+                    ForEach(emotes) { sticker in
                         EmoteCardView(
                             sticker: sticker,
-                            avatarObject: selectedAvatarId != nil ? avatarObjects[selectedAvatarId!] : nil,
-                            isAnimoji: isAnimoji,
-                            animojiName: animojiName,
+                            avatarObject: avatarObj,
+                            isAnimoji: animojiFlag,
+                            animojiName: animojiVal,
                             isSelected: activePoseName == sticker.name,
                             isFavorite: favorites.isEmoteFavorite(sticker.name),
                             onSelect: {
@@ -478,12 +491,12 @@ public struct SidebarView: View {
                 }
             } else {
                 LazyVStack(spacing: 8) {
-                    ForEach(filteredEmotes) { sticker in
+                    ForEach(emotes) { sticker in
                         EmoteListRowView(
                             sticker: sticker,
-                            avatarObject: selectedAvatarId != nil ? avatarObjects[selectedAvatarId!] : nil,
-                            isAnimoji: isAnimoji,
-                            animojiName: animojiName,
+                            avatarObject: avatarObj,
+                            isAnimoji: animojiFlag,
+                            animojiName: animojiVal,
                             isSelected: activePoseName == sticker.name,
                             isFavorite: favorites.isEmoteFavorite(sticker.name),
                             onSelect: {

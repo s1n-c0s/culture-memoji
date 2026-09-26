@@ -35,6 +35,7 @@ public struct EmoteCardView: View {
         self.onSelect = onSelect
         self.onToggleFavorite = onToggleFavorite
         self.onCopy = onCopy
+        self._thumbnail = State(initialValue: ThumbnailCache.shared.cachedEmoteThumbnail(for: sticker))
     }
     
     public var body: some View {
@@ -138,13 +139,15 @@ public struct EmoteCardView: View {
                 Label(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "star.slash" : "star")
             }
         }
-        .task(id: "\(sticker.name)_\(avatarObject != nil ? UInt(bitPattern: ObjectIdentifier(avatarObject!)) : 0)") {
-            thumbnail = await ThumbnailCache.shared.getEmoteThumbnail(
-                sticker: sticker,
-                avatarObject: avatarObject,
-                isAnimoji: isAnimoji,
-                animojiName: animojiName
-            )
+        .task(id: sticker.id) {
+            if thumbnail == nil {
+                thumbnail = await ThumbnailCache.shared.getEmoteThumbnail(
+                    sticker: sticker,
+                    avatarObject: avatarObject,
+                    isAnimoji: isAnimoji,
+                    animojiName: animojiName
+                )
+            }
         }
     }
 }
@@ -183,6 +186,7 @@ public struct EmoteListRowView: View {
         self.onSelect = onSelect
         self.onToggleFavorite = onToggleFavorite
         self.onCopy = onCopy
+        self._thumbnail = State(initialValue: ThumbnailCache.shared.cachedEmoteThumbnail(for: sticker))
     }
     
     public var body: some View {
@@ -254,13 +258,15 @@ public struct EmoteListRowView: View {
         }
         .buttonStyle(.plain)
         .onHover { h in isHovered = h }
-        .task(id: "\(sticker.name)_\(avatarObject != nil ? UInt(bitPattern: ObjectIdentifier(avatarObject!)) : 0)") {
-            thumbnail = await ThumbnailCache.shared.getEmoteThumbnail(
-                sticker: sticker,
-                avatarObject: avatarObject,
-                isAnimoji: isAnimoji,
-                animojiName: animojiName
-            )
+        .task(id: sticker.id) {
+            if thumbnail == nil {
+                thumbnail = await ThumbnailCache.shared.getEmoteThumbnail(
+                    sticker: sticker,
+                    avatarObject: avatarObject,
+                    isAnimoji: isAnimoji,
+                    animojiName: animojiName
+                )
+            }
         }
     }
 }

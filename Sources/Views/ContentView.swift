@@ -298,41 +298,77 @@ public struct ContentView: View {
     
     @MainActor
     private func loadStickers(for item: AvatarItem) {
+        let allNames: [String]
+        let diskStickers: [StickerItem]
+        let animojiName: String?
+        
         switch item.sourceType {
         case .customMemoji:
-            let names = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
-            avatarStickers[item.id] = makeStickerItems(from: names, prefix: item.id)
+            animojiName = nil
+            allNames = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
+            diskStickers = AvatarDatabaseReader.shared.findAppCachedStickers(forAvatarId: item.id)
             
         case .userMemoji(let uuid):
-            let diskStickers = AvatarDatabaseReader.shared.findCachedStickers(forUUID: uuid)
-            if !diskStickers.isEmpty {
-                avatarStickers[item.id] = diskStickers
-            } else {
-                let names = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
-                avatarStickers[item.id] = makeStickerItems(from: names, prefix: item.id)
-            }
+            animojiName = nil
+            allNames = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
+            diskStickers = AvatarDatabaseReader.shared.findCachedStickers(forUUID: uuid)
             
         case .builtinAnimoji(let name):
-            let names = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: name)
-            avatarStickers[item.id] = makeStickerItems(from: names, prefix: item.id)
+            animojiName = name
+            allNames = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: name)
+            diskStickers = AvatarDatabaseReader.shared.findCachedStickers(forAnimojiNamed: name)
             
         case .randomMemoji:
-            let names = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
-            avatarStickers[item.id] = makeStickerItems(from: names, prefix: item.id)
+            animojiName = nil
+            allNames = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
+            diskStickers = AvatarDatabaseReader.shared.findAppCachedStickers(forAvatarId: item.id)
         }
+        
+        let merged = mergeStickerItems(diskStickers: diskStickers, allNames: allNames, prefix: item.id)
+        avatarStickers[item.id] = merged
+        
+        // 1. Pre-warm sticker configurations in background so previewing poses is instant
+        AvatarKitBridge.shared.prewarmStickerConfigurations(forAnimojiNamed: animojiName, stickerNames: allNames)
+        
+        // 2. Pre-warm top thumbnails in background so switching to Emote tab is instant
+        ThumbnailCache.shared.prewarmEmoteThumbnails(
+            stickers: merged,
+            avatarObject: avatarObjects[item.id],
+            isAnimoji: animojiName != nil,
+            animojiName: animojiName
+        )
     }
     
-    private func makeStickerItems(from names: [String], prefix: String) -> [StickerItem] {
-        names.map { name in
-            let meta = AvatarDatabaseReader.shared.metadata(forStickerName: name)
-            return StickerItem(
-                id: "\(prefix)_\(name)",
-                name: name,
-                localizedTitle: meta.title,
-                category: meta.category,
-                emoji: meta.emoji
-            )
+    private func mergeStickerItems(diskStickers: [StickerItem], allNames: [String], prefix: String) -> [StickerItem] {
+        var result: [StickerItem] = []
+        var seenNames = Set<String>()
+        
+        // 1. Add disk stickers first (they load instantly with 0ms delay)
+        for item in diskStickers {
+            if seenNames.insert(item.name.lowercased()).inserted {
+                result.append(item)
+            }
         }
+        
+        // 2. Append any extra poses from availableStickerNames
+        for name in allNames {
+            if !seenNames.contains(name.lowercased()) {
+                seenNames.insert(name.lowercased())
+                let meta = AvatarDatabaseReader.shared.metadata(forStickerName: name)
+                result.append(
+                    StickerItem(
+                        id: "\(prefix)_\(name)",
+                        name: name,
+                        localizedTitle: meta.title,
+                        category: meta.category,
+                        emoji: meta.emoji,
+                        localFileURL: nil
+                    )
+                )
+            }
+        }
+        
+        return result
     }
     
     // MARK: - Creation & Editing
@@ -459,8 +495,7 @@ public struct ContentView: View {
                     userMemojis[idx].displayName = name
                 }
                 avatarObjects[existing.id] = savedAvatar
-                let names = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
-                avatarStickers[existing.id] = makeStickerItems(from: names, prefix: existing.id)
+                loadStickers(for: existing)
                 selectedAvatarId = existing.id
                 showToast("Updated system Memoji '\(name)'")
                 
