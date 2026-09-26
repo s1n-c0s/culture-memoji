@@ -89,24 +89,97 @@ public struct AvatarDetailView: View {
             )
             .ignoresSafeArea()
             
-            // Centered Stage Showcase
-            VStack(spacing: 12) {
+            // Full-Area 3D Viewport (fills full available area of stage without clipping)
+            if isLiveCameraActive {
+                VStack(spacing: 12) {
+                    Spacer()
+                    LiveFaceMirrorRepresentable(avatar: avatarObject)
+                        .frame(maxWidth: 640, maxHeight: 540)
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(Color.primary.opacity(0.12), lineWidth: 1.5)
+                        )
+                        .shadow(color: Color.black.opacity(0.15), radius: 16, x: 0, y: 8)
+                    
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 7, height: 7)
+                        Text("Live Face-Tracking Active")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                    
+                    Spacer()
+                }
+                .padding(.bottom, 130)
+            } else {
+                Avatar3DStageRepresentable(
+                    avatar: avatarObject,
+                    activePoseName: activePoseName,
+                    isAnimoji: isAnimoji,
+                    animojiName: animojiName,
+                    clone: true,
+                    mutationId: stageMutationId,
+                    stageController: stageController
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.bottom, 130)
+                .contextMenu {
+                    Button(action: copyAvatarToClipboard) {
+                        Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
+                    }
+                    
+                    Button(action: shareAvatar) {
+                        Label("Share Avatar...", systemImage: "square.and.arrow.up")
+                    }
+                    
+                    Divider()
+                    
+                    Button(action: handleReset) {
+                        Label("Reset Camera Framing & Pose", systemImage: "arrow.counterclockwise")
+                    }
+                    
+                    if avatarItem.isEditable {
+                        Button(action: onEditRequested) {
+                            Label("Customize 3D Memoji...", systemImage: "paintbrush")
+                        }
+                    }
+                }
+            }
+            
+            // Floating Bottom Controls: Gesture Hint, Character Name, Action Buttons
+            VStack(spacing: 8) {
                 Spacer()
                 
-                // Central Avatar Stage / Live Camera Viewport
-                centerAvatarArea
+                // Subtle gesture hint
+                if !isLiveCameraActive {
+                    HStack(spacing: 5) {
+                        Image(systemName: "hand.draw")
+                            .font(.system(size: 10))
+                        Text("Drag to rotate • Scroll to zoom")
+                            .font(.system(size: 10.5, weight: .medium))
+                    }
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3.5)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                }
                 
                 // Character Name & Badge
                 nameSection
-                    .padding(.top, 4)
                 
                 // Copy & Share Action Buttons Row
                 actionButtonsRow
-                    .padding(.top, 10)
-                
-                Spacer()
+                    .padding(.top, 4)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom, 24)
             
             // Top Right Action Bar
             VStack {
@@ -175,87 +248,6 @@ public struct AvatarDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .help(isLiveCameraActive ? "Switch back to 3D Stage" : "Live Camera Face-Tracking Mirror")
-            }
-        }
-    }
-    
-    // MARK: - Center Avatar Stage
-    
-    private var centerAvatarArea: some View {
-        ZStack {
-            if isLiveCameraActive {
-                // Live Camera Tracking Mode Viewport
-                VStack(spacing: 12) {
-                    LiveFaceMirrorRepresentable(avatar: avatarObject)
-                        .frame(width: 440, height: 420)
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18)
-                                .stroke(Color.primary.opacity(0.12), lineWidth: 1.5)
-                        )
-                        .shadow(color: Color.black.opacity(0.15), radius: 16, x: 0, y: 8)
-                    
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 7, height: 7)
-                        Text("Live Face-Tracking Active")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                }
-            } else {
-                // Interactive 3D AVTView Stage
-                VStack(spacing: 8) {
-                    Avatar3DStageRepresentable(
-                        avatar: avatarObject,
-                        activePoseName: activePoseName,
-                        isAnimoji: isAnimoji,
-                        animojiName: animojiName,
-                        clone: true,
-                        mutationId: stageMutationId,
-                        stageController: stageController
-                    )
-                    .frame(width: 470, height: 440)
-                    .contextMenu {
-                        Button(action: copyAvatarToClipboard) {
-                            Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
-                        }
-                        
-                        Button(action: shareAvatar) {
-                            Label("Share Avatar...", systemImage: "square.and.arrow.up")
-                        }
-                        
-                        Divider()
-                        
-                        Button(action: handleReset) {
-                            Label("Reset Camera Framing & Pose", systemImage: "arrow.counterclockwise")
-                        }
-                        
-                        if avatarItem.isEditable {
-                            Button(action: onEditRequested) {
-                                Label("Customize 3D Memoji...", systemImage: "paintbrush")
-                            }
-                        }
-                    }
-                    
-                    // Subtle gesture hint
-                    HStack(spacing: 5) {
-                        Image(systemName: "hand.draw")
-                            .font(.system(size: 10))
-                        Text("Drag to rotate • Scroll to zoom")
-                            .font(.system(size: 10.5, weight: .medium))
-                    }
-                    .foregroundColor(.secondary.opacity(0.7))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 3.5)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                }
             }
         }
     }
