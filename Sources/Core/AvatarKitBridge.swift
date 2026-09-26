@@ -157,6 +157,12 @@ public final class AvatarKitBridge {
             _ = (view as AnyObject).perform(ctrlSel, with: true as NSNumber)
         }
         
+        // Set background to pure white matching the design stage
+        let bgSel = NSSelectorFromString("setBackgroundColor:")
+        if view.responds(to: bgSel) {
+            _ = (view as AnyObject).perform(bgSel, with: NSColor.white)
+        }
+        
         // Stabilize camera controller orbit target and up-vector
         stabilizeCameraController(on: view)
         
@@ -251,6 +257,11 @@ public final class AvatarKitBridge {
         
         if let avatar = avatar {
             setAvatar(avatar, on: view)
+        }
+        
+        let bgSel = NSSelectorFromString("setBackgroundColor:")
+        if view.responds(to: bgSel) {
+            _ = (view as AnyObject).perform(bgSel, with: NSColor.white)
         }
         
         return view

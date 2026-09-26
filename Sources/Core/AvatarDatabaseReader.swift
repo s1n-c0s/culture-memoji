@@ -116,7 +116,25 @@ public final class AvatarDatabaseReader: Sendable {
         }
     }
     
+    /// Renames a custom avatar in persistent storage
+    public func renameCustomMemoji(id: String, newName: String) -> Bool {
+        let filePath = (customAvatarsDirectoryPath as NSString).appendingPathComponent("\(id).json")
+        guard FileManager.default.fileExists(atPath: filePath),
+              let fileData = try? Data(contentsOf: URL(fileURLWithPath: filePath)),
+              var json = (try? JSONSerialization.jsonObject(with: fileData)) as? [String: Any] else {
+            return false
+        }
+        json["name"] = newName
+        json["updatedAt"] = Date().timeIntervalSince1970
+        if let jsonData = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
+            try? jsonData.write(to: URL(fileURLWithPath: filePath))
+            return true
+        }
+        return false
+    }
+    
     /// Updates an existing system Memoji in Apple's CoreData avatars.db
+
     public func updateUserMemojiInSystemDatabase(uuid: String, data: Data) -> Bool {
         guard FileManager.default.fileExists(atPath: dbPath) else { return false }
         

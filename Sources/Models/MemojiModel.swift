@@ -90,3 +90,18 @@ public struct StickerItem: Identifiable, Hashable {
         self.localFileURL = localFileURL
     }
 }
+
+public enum SidebarTab: String, CaseIterable, Identifiable {
+    case character = "Character"
+    case emote = "Emote"
+    
+    public var id: String { rawValue }
+}
+
+public enum SidebarViewMode: String, CaseIterable, Identifiable {
+    case grid = "Grid"
+    case list = "List"
+    
+    public var id: String { rawValue }
+}
+

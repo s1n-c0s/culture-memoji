@@ -7,6 +7,10 @@ public struct ContentView: View {
     @State private var builtinAnimojis: [AvatarItem] = []
     @State private var randomMemojis: [AvatarItem] = []
     @State private var selectedAvatarId: String?
+    @State private var activePoseName: String?
+    
+    @State private var currentTab: SidebarTab = .character
+    @State private var viewMode: SidebarViewMode = .grid
     
     // In-memory cache for live AVTAvatar/AVTAnimoji instances
     @State private var avatarObjects: [String: AnyObject] = [:]
@@ -36,105 +40,124 @@ public struct ContentView: View {
             ?? builtinAnimojis.first
     }
     
+    private var isAnimoji: Bool {
+        if case .builtinAnimoji = selectedAvatarItem?.sourceType { return true }
+        return false
+    }
+    
+    private var animojiName: String? {
+        if case .builtinAnimoji(let name) = selectedAvatarItem?.sourceType { return name }
+        return nil
+    }
+    
     public var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
+            // Left Sidebar
             SidebarView(
                 selectedAvatarId: $selectedAvatarId,
+                activePoseName: $activePoseName,
+                currentTab: $currentTab,
+                viewMode: $viewMode,
                 userMemojis: userMemojis,
                 customMemojis: customMemojis,
                 builtinAnimojis: builtinAnimojis,
                 randomMemojis: randomMemojis,
+                avatarObjects: avatarObjects,
+                stickersForSelectedAvatar: selectedAvatarId != nil ? (avatarStickers[selectedAvatarId!] ?? []) : [],
                 onAddNewMemoji: startCreatingNewMemoji,
                 onEditMemoji: startEditingMemoji,
                 onDuplicateMemoji: duplicateMemoji,
                 onDeleteCustomMemoji: deleteCustomMemoji,
-                onAddRandomMemoji: addRandomMemoji,
-                onRefreshRequested: reloadData
+                onRenameMemoji: renameMemoji,
+                onRefreshRequested: reloadData,
+                onCopySticker: copyStickerToClipboard
             )
-            .navigationSplitViewColumnWidth(min: 210, ideal: 235, max: 280)
-        } detail: {
+            .frame(width: 330)
+            
+            // Subtle vertical divider between sidebar and main area
+            Rectangle()
+                .fill(Color.black.opacity(0.08))
+                .frame(width: 1)
+            
+            // Right Main Stage
             ZStack {
                 if isLoading {
                     VStack(spacing: 12) {
                         ProgressView()
                             .scaleEffect(0.85)
                         Text("Loading Apple Memojis...")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 13))
+                            .foregroundColor(AppTheme.secondaryText)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(AppTheme.stageBackground)
                 } else if let current = selectedAvatarItem {
                     AvatarDetailView(
                         avatarItem: current,
                         avatarObject: avatarObjects[current.id],
-                        stickers: avatarStickers[current.id] ?? [],
-                        onRandomizeRequested: {
-                            randomizeCurrentMemoji(item: current)
+                        activePoseName: activePoseName,
+                        onResetPoseAndCamera: {
+                            activePoseName = nil
                         },
                         onEditRequested: {
                             startEditingMemoji(item: current)
+                        },
+                        onRenameRequested: { newName in
+                            renameAvatar(item: current, newName: newName)
+                        },
+                        onCopiedNotification: { msg in
+                            showToast(msg)
                         }
                     )
                     .id(current.id)
                 } else {
                     VStack(spacing: 14) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.accentColor.opacity(0.08))
-                                .frame(width: 76, height: 76)
-                            
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 32))
-                                .foregroundColor(.accentColor)
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 36))
+                            .foregroundColor(.black)
+                        
+                        Text("No Memoji Selected")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.black)
+                        
+                        Button(action: startCreatingNewMemoji) {
+                            Text("+ New Character")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.black)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
-                        
-                        Text("Select or Create a Memoji")
-                            .font(.title3)
-                            .fontWeight(.semibold)
-                        
-                        Text("Choose an avatar from the sidebar or create a new one in 3D Studio.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: 320)
-                        
-                        HStack(spacing: 10) {
-                            Button(action: startCreatingNewMemoji) {
-                                Label("New Memoji", systemImage: "plus")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            
-                            Button("Random Memoji") {
-                                addRandomMemoji()
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                        .padding(.top, 4)
+                        .buttonStyle(.plain)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(AppTheme.stageBackground)
                 }
                 
-                // Floating App Toast
+                // Floating App Toast Notification HUD
                 if let toast = toastMessage {
                     VStack {
                         Spacer()
-                        HStack(spacing: 7) {
-                            Image(systemName: "checkmark")
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: 13))
                             Text(toast)
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.black)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 9)
                         .background(.ultraThickMaterial)
                         .clipShape(Capsule())
                         .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 3)
-                        .padding(.bottom, 20)
+                        .padding(.bottom, 24)
                     }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .sheet(isPresented: $isShowingEditor) {
             if let avatar = editorTargetAvatar {
@@ -156,6 +179,7 @@ public struct ContentView: View {
         }
         .onChange(of: selectedAvatarId) { _, newId in
             if let id = newId {
+                activePoseName = nil
                 ensureAvatarLoaded(forId: id)
             }
         }
@@ -180,7 +204,7 @@ public struct ContentView: View {
         self.builtinAnimojis = names.map { name in
             AvatarItem(
                 id: "animoji_\(name)",
-                displayName: name,
+                displayName: name.capitalized,
                 sourceType: .builtinAnimoji(name: name)
             )
         }
@@ -203,6 +227,7 @@ public struct ContentView: View {
         let currentId = selectedAvatarId
         avatarObjects.removeAll()
         avatarStickers.removeAll()
+        ThumbnailCache.shared.clear()
         Task {
             await loadInitialData()
             if let id = currentId, !id.isEmpty {
@@ -347,6 +372,50 @@ public struct ContentView: View {
     }
     
     @MainActor
+    private func renameAvatar(item: AvatarItem, newName: String) {
+        switch item.sourceType {
+        case .customMemoji(let id):
+            _ = AvatarDatabaseReader.shared.renameCustomMemoji(id: id, newName: newName)
+            if let idx = customMemojis.firstIndex(where: { $0.id == id }) {
+                customMemojis[idx].displayName = newName
+            }
+        case .userMemoji:
+            if let idx = userMemojis.firstIndex(where: { $0.id == item.id }) {
+                userMemojis[idx].displayName = newName
+            }
+        case .builtinAnimoji:
+            if let idx = builtinAnimojis.firstIndex(where: { $0.id == item.id }) {
+                builtinAnimojis[idx].displayName = newName
+            }
+        case .randomMemoji:
+            if let idx = randomMemojis.firstIndex(where: { $0.id == item.id }) {
+                randomMemojis[idx].displayName = newName
+            }
+        }
+        showToast("Renamed to '\(newName)'")
+    }
+    
+    @MainActor
+    private func renameMemoji(item: AvatarItem) {
+        let alert = NSAlert()
+        alert.messageText = "Rename Character"
+        alert.informativeText = "Enter a new name for '\(item.displayName)':"
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        input.stringValue = item.displayName
+        alert.accessoryView = input
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            let val = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !val.isEmpty {
+                renameAvatar(item: item, newName: val)
+            }
+        }
+    }
+    
+    @MainActor
     private func handleEditorSave(name: String, savedAvatar: AnyObject) {
         guard let data = AvatarKitBridge.shared.dataRepresentation(for: savedAvatar) else {
             isShowingEditor = false
@@ -354,6 +423,7 @@ public struct ContentView: View {
         }
         
         AvatarKitBridge.shared.clearPosedStickerCache()
+        ThumbnailCache.shared.clear()
         
         if let existing = editorTargetItem {
             avatarStickers.removeValue(forKey: existing.id)
@@ -375,7 +445,6 @@ public struct ContentView: View {
                     userMemojis[idx].displayName = name
                 }
                 avatarObjects[existing.id] = savedAvatar
-                // Always load dynamic sticker items so old disk PNGs don't override the edited model
                 let names = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
                 avatarStickers[existing.id] = makeStickerItems(from: names, prefix: existing.id)
                 selectedAvatarId = existing.id
@@ -428,54 +497,22 @@ public struct ContentView: View {
         }
     }
     
-    // MARK: - Actions
-    
     @MainActor
-    private func addRandomMemoji() {
-        guard let rand = AvatarKitBridge.shared.createRandomMemoji() else { return }
-        let seed = UUID()
-        let id = "random_\(seed.uuidString)"
-        let count = randomMemojis.count + 1
+    private func copyStickerToClipboard(sticker: StickerItem) {
+        guard let id = selectedAvatarId else { return }
+        let avatar = avatarObjects[id]
         
-        let item = AvatarItem(
-            id: id,
-            displayName: "Random Avatar \(count)",
-            sourceType: .randomMemoji(seed: seed)
-        )
-        
-        avatarObjects[id] = rand
-        randomMemojis.append(item)
-        loadStickers(for: item)
-        selectedAvatarId = id
-        showToast("Generated Random Avatar")
-    }
-    
-    @MainActor
-    private func randomizeCurrentMemoji(item: AvatarItem) {
-        if case .builtinAnimoji = item.sourceType {
-            addRandomMemoji()
-            return
+        Task {
+            if let img = await ThumbnailCache.shared.getEmoteThumbnail(
+                sticker: sticker,
+                avatarObject: avatar,
+                isAnimoji: isAnimoji,
+                animojiName: animojiName
+            ) {
+                StickerExportManager.shared.copyToClipboard(image: img)
+                showToast("Copied '\(sticker.localizedTitle)' sticker")
+            }
         }
-        
-        guard let avatar = avatarObjects[item.id] else { return }
-        let randSel = NSSelectorFromString("randomize")
-        guard (avatar as AnyObject).responds(to: randSel) else { return }
-        _ = (avatar as AnyObject).perform(randSel)
-        
-        // Clear cached stickers & generator for the randomized model
-        AvatarKitBridge.shared.clearPosedStickerCache()
-        
-        // Use live dynamic stickers (no stale disk cache for randomized appearance)
-        let names = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
-        avatarStickers[item.id] = makeStickerItems(from: names, prefix: item.id)
-        
-        let savedId = selectedAvatarId
-        selectedAvatarId = nil
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            selectedAvatarId = savedId
-        }
-        showToast("Randomized '\(item.displayName)'")
     }
     
     private func showToast(_ text: String) {

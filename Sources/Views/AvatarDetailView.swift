@@ -1,76 +1,39 @@
 import SwiftUI
 import AppKit
 
-public enum StageDisplayMode: String, CaseIterable, Identifiable {
-    case split = "3D Stage & Stickers"
-    case full3D = "Full 3D Stage"
-    case liveCamera = "Live Face Mirror"
-    
-    public var id: String { rawValue }
-    
-    public var iconName: String {
-        switch self {
-        case .split: return "rectangle.split.2x1"
-        case .full3D: return "cube.transparent.fill"
-        case .liveCamera: return "camera.fill"
-        }
-    }
-}
-
-public enum StudioBackdrop: String, CaseIterable, Identifiable {
-    case studio = "Studio"
-    case graphite = "Graphite"
-    case velvet = "Velvet"
-    case neutral = "Clean"
-    
-    public var id: String { rawValue }
-    
-    public var nsColors: [NSColor] {
-        switch self {
-        case .studio:
-            return [NSColor.controlAccentColor.withAlphaComponent(0.22), NSColor.windowBackgroundColor]
-        case .graphite:
-            return [NSColor(red: 0.18, green: 0.20, blue: 0.22, alpha: 1.0), NSColor(red: 0.08, green: 0.09, blue: 0.10, alpha: 1.0)]
-        case .velvet:
-            return [NSColor.systemPurple.withAlphaComponent(0.26), NSColor.windowBackgroundColor]
-        case .neutral:
-            return [NSColor.controlBackgroundColor, NSColor.windowBackgroundColor]
-        }
-    }
-    
-    public var backgroundColors: [Color] {
-        nsColors.map { Color(nsColor: $0) }
-    }
-}
-
 public struct AvatarDetailView: View {
     public let avatarItem: AvatarItem
     public let avatarObject: AnyObject?
-    public let stickers: [StickerItem]
-    public let onRandomizeRequested: () -> Void
+    public let activePoseName: String?
+    public let onResetPoseAndCamera: () -> Void
     public let onEditRequested: () -> Void
+    public let onRenameRequested: ((String) -> Void)?
+    public let onCopiedNotification: ((String) -> Void)?
     
     @StateObject private var stageController = StageViewController()
-    @State private var displayMode: StageDisplayMode = .split
-    @State private var activePoseName: String?
-    @State private var stageHeight: CGFloat = 280
-    @State private var backdrop: StudioBackdrop = .studio
-    @State private var showCopiedAlert: Bool = false
-    @State private var copiedNotificationText: String = "Copied!"
+    @State private var isLiveCameraActive: Bool = false
+    @State private var showCopiedFeedback: Bool = false
+    @State private var isHoveringName: Bool = false
+    @State private var isEditingNameInline: Bool = false
+    @State private var editedName: String = ""
     @State private var stageMutationId: UUID = UUID()
     
     public init(
         avatarItem: AvatarItem,
         avatarObject: AnyObject?,
-        stickers: [StickerItem],
-        onRandomizeRequested: @escaping () -> Void,
-        onEditRequested: @escaping () -> Void = {}
+        activePoseName: String? = nil,
+        onResetPoseAndCamera: @escaping () -> Void,
+        onEditRequested: @escaping () -> Void = {},
+        onRenameRequested: ((String) -> Void)? = nil,
+        onCopiedNotification: ((String) -> Void)? = nil
     ) {
         self.avatarItem = avatarItem
         self.avatarObject = avatarObject
-        self.stickers = stickers
-        self.onRandomizeRequested = onRandomizeRequested
+        self.activePoseName = activePoseName
+        self.onResetPoseAndCamera = onResetPoseAndCamera
         self.onEditRequested = onEditRequested
+        self.onRenameRequested = onRenameRequested
+        self.onCopiedNotification = onCopiedNotification
     }
     
     public var isAnimoji: Bool {
@@ -84,546 +47,270 @@ public struct AvatarDetailView: View {
     }
     
     public var body: some View {
-        VStack(spacing: 0) {
-            // Content Area based on Display Mode
-            if displayMode == .liveCamera {
-                liveCameraSection
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                VStack(spacing: 0) {
-                    // 3D Stage Section
-                    stageSection
-                        .frame(maxHeight: displayMode == .full3D ? .infinity : stageHeight)
-                    
-                    Divider()
-                    
-                    if displayMode == .split {
-                        // Bottom Stickers Grid
-                        StickersGridView(
-                            stickers: stickers,
-                            avatar: avatarObject,
-                            activePoseName: activePoseName,
-                            mutationId: stageMutationId,
-                            isAnimoji: isAnimoji,
-                            animojiName: animojiName,
-                            onSelectPose: { pose in
-                                activePoseName = pose
-                            }
-                        )
-                    } else {
-                        // Quick Pose selector bar at the bottom in Full 3D mode
-                        quickPoseBar
-                    }
-                }
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Picker("", selection: $displayMode) {
-                    ForEach(StageDisplayMode.allCases) { mode in
-                        Label(mode.rawValue, systemImage: mode.iconName).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 300)
-            }
-            
-            ToolbarItemGroup(placement: .primaryAction) {
-                // Copy visual avatar snapshot button with dropdown menu
-                Menu {
-                    Button {
-                        copyVisualAvatar(withBackdrop: false)
-                    } label: {
-                        Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
-                    }
-                    
-                    Button {
-                        copyVisualAvatar(withBackdrop: true)
-                    } label: {
-                        Label("Copy with Studio Backdrop", systemImage: "photo")
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: showCopiedAlert ? "checkmark" : "doc.on.doc")
-                            .foregroundColor(showCopiedAlert ? .green : .primary)
-                        Text(showCopiedAlert ? copiedNotificationText : "Copy")
-                    }
-                } primaryAction: {
-                    copyVisualAvatar(withBackdrop: false)
-                }
-                .help("Copy avatar snapshot (⌘C)")
-                
-                // Customize button for editable avatars
-                if avatarItem.isEditable {
-                    Button(action: onEditRequested) {
-                        Label("Customize", systemImage: "paintbrush")
-                    }
-                    .help("Open 3D Memoji Studio to edit hairstyle, skin tone, colors (⌘E)")
-                }
-                
-                Button(action: shareAvatar) {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .help("Share avatar image...")
-            }
-        }
-    }
-    
-    // MARK: - 3D Stage Section
-    
-    private var stageSection: some View {
         ZStack {
-            // Backdrop Gradient with Vignette effect
-            RadialGradient(
-                colors: backdrop.backgroundColors,
-                center: .center,
-                startRadius: 40,
-                endRadius: 450
-            )
+            // Pure white background matching design
+            AppTheme.stageBackground
+                .ignoresSafeArea()
             
-            // Native AVTView Stage
-            Avatar3DStageRepresentable(
-                avatar: avatarObject,
-                activePoseName: activePoseName,
-                isAnimoji: isAnimoji,
-                animojiName: animojiName,
-                clone: true,
-                mutationId: stageMutationId,
-                stageController: stageController
-            )
-            .padding(displayMode == .full3D ? 24 : 12)
-            .contextMenu {
-                Button {
-                    copyVisualAvatar(withBackdrop: false)
-                } label: {
-                    Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
-                }
-                
-                Button {
-                    copyVisualAvatar(withBackdrop: true)
-                } label: {
-                    Label("Copy with Studio Backdrop", systemImage: "photo")
-                }
-                
-                Divider()
-                
-                Button {
-                    resetCamera()
-                } label: {
-                    Label("Reset Camera Framing", systemImage: "arrow.counterclockwise")
-                }
-            }
-            
-            // Floating Stage Controls Overlay
-            stageOverlayControls
-        }
-    }
-    
-    private var stageOverlayControls: some View {
-        VStack {
-            HStack(alignment: .top) {
-                // Leading: Avatar Name & Active Pose Chip
-                HStack(spacing: 8) {
-                    Text(avatarItem.displayName)
-                        .font(.system(size: 13, weight: .semibold))
-                    
-                    Text(badgeLabel)
-                        .font(.system(size: 9.5, weight: .medium))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2.5)
-                        .background(badgeColor.opacity(0.12))
-                        .foregroundColor(badgeColor)
-                        .clipShape(Capsule())
-                    
-                    if let pose = activePoseName {
-                        HStack(spacing: 4) {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 9.5))
-                                .foregroundColor(.accentColor)
-                            Text(friendlyPoseName(pose))
-                                .font(.system(size: 11, weight: .medium))
-                            
-                            Button(action: {
-                                withAnimation {
-                                    activePoseName = nil
-                                }
-                            }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.secondary)
-                                    .font(.system(size: 10))
-                            }
-                            .buttonStyle(.plain)
-                            .help("Reset to neutral expression")
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Capsule())
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
+            VStack(spacing: 0) {
+                // Top Right Action Icons
+                topRightBar
+                    .padding(.top, 24)
+                    .padding(.trailing, 28)
                 
                 Spacer()
                 
-                // Trailing: Backdrop Theme & Reset View Controls
-                HStack(spacing: 8) {
-                    // Backdrop theme menu
-                    Menu {
-                        ForEach(StudioBackdrop.allCases) { b in
-                            Button(action: { backdrop = b }) {
-                                HStack {
-                                    Text(b.rawValue)
-                                    if backdrop == b {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "circle.lefthalf.filled")
-                            .font(.system(size: 11))
-                    }
-                    .menuStyle(.borderlessButton)
-                    .help("Change studio backdrop lighting")
-                    
-                    Divider().frame(height: 12)
-                    
-                    // Reset View button
-                    Button(action: resetCamera) {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 11))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Reset camera framing & orientation")
-                    
-                    if avatarItem.isEditable {
-                        Divider().frame(height: 12)
-                        
-                        // Randomize button if editable
-                        Button(action: {
-                            onRandomizeRequested()
-                            stageMutationId = UUID()
-                        }) {
-                            Image(systemName: "dice")
-                                .font(.system(size: 11))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Randomize appearance (⌘R)")
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
+                // Central Avatar / Live Camera Area
+                centerAvatarArea
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 480)
+                
+                Spacer()
+                
+                // Character Name
+                nameSection
+                    .padding(.bottom, 22)
+                
+                // Copy & Share Action Buttons Row
+                actionButtonsRow
+                    .padding(.bottom, 36)
             }
-            .padding(12)
-            
+        }
+    }
+    
+    // MARK: - Top Right Bar (Reset & Camera Icons)
+    
+    private var topRightBar: some View {
+        HStack {
             Spacer()
             
-            // Bottom Controls Bar in 3D Stage
-            HStack {
-                // Drag hint
-                HStack(spacing: 6) {
-                    Image(systemName: "hand.draw")
-                        .font(.system(size: 10))
-                    Text("Drag to rotate • Scroll to zoom")
-                        .font(.system(size: 10, weight: .medium))
+            HStack(spacing: 22) {
+                // Reset Orbit & Neutral Pose Button
+                Button(action: handleReset) {
+                    ResetFramingIcon(size: 26)
                 }
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
+                .buttonStyle(.plain)
+                .help("Reset camera framing & neutral pose")
                 
-                Spacer()
-                
-                // Stage height toggle in split mode
-                if displayMode == .split {
-                    HStack(spacing: 4) {
-                        Button(action: {
-                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                                stageHeight = stageHeight == 280 ? 360 : (stageHeight == 360 ? 220 : 280)
-                            }
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.up.and.down")
-                                    .font(.system(size: 9))
-                                Text(stageHeight == 280 ? "Medium" : (stageHeight == 360 ? "Tall" : "Compact"))
-                                    .font(.system(size: 10, weight: .medium))
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .help("Adjust 3D stage height")
+                // Live Camera Face-Tracking Toggle Button
+                Button(action: {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                        isLiveCameraActive.toggle()
                     }
+                }) {
+                    LiveCameraIcon(size: 28, isActive: isLiveCameraActive)
                 }
+                .buttonStyle(.plain)
+                .help(isLiveCameraActive ? "Switch back to 3D Stage" : "Live Camera Face-Tracking Mirror")
             }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 10)
         }
     }
     
-    // MARK: - Live Camera Section
+    // MARK: - Center Avatar Stage
     
-    private var liveCameraSection: some View {
-        VStack(spacing: 16) {
-            ZStack {
+    private var centerAvatarArea: some View {
+        ZStack {
+            if isLiveCameraActive {
+                // Live Camera Tracking Mode
                 LiveFaceMirrorRepresentable(avatar: avatarObject)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(width: 440, height: 440)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
                     )
-            }
-            .padding(20)
-            
-            VStack(spacing: 6) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 8, height: 8)
-                    Text("Live Camera Face Tracking Active")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-                Text("Smile, wink, raise eyebrows, or turn your head to control the Memoji in real time.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.bottom, 16)
-        }
-    }
-    
-    // MARK: - Quick Pose Bar (Full 3D Mode)
-    
-    private var quickPoseBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                MiniNeutralPill(
+            } else {
+                // Interactive 3D AVTView Stage
+                Avatar3DStageRepresentable(
                     avatar: avatarObject,
-                    isSelected: activePoseName == nil,
+                    activePoseName: activePoseName,
+                    isAnimoji: isAnimoji,
+                    animojiName: animojiName,
+                    clone: true,
                     mutationId: stageMutationId,
-                    onSelect: { activePoseName = nil }
+                    stageController: stageController
                 )
-                
-                ForEach(stickers.prefix(30)) { sticker in
-                    MiniPosePill(
-                        sticker: sticker,
-                        avatar: avatarObject,
-                        isAnimoji: isAnimoji,
-                        animojiName: animojiName,
-                        isSelected: activePoseName == sticker.name,
-                        mutationId: stageMutationId,
-                        onSelect: { activePoseName = sticker.name }
-                    )
+                .frame(width: 460, height: 460)
+                .contextMenu {
+                    Button(action: copyAvatarToClipboard) {
+                        Label("Copy Visual PNG", systemImage: "doc.on.doc")
+                    }
+                    
+                    Button(action: shareAvatar) {
+                        Label("Share Avatar...", systemImage: "square.and.arrow.up")
+                    }
+                    
+                    Divider()
+                    
+                    Button(action: handleReset) {
+                        Label("Reset Framing & Pose", systemImage: "arrow.counterclockwise")
+                    }
+                    
+                    if avatarItem.isEditable {
+                        Button(action: onEditRequested) {
+                            Label("Customize 3D Memoji...", systemImage: "pencil")
+                        }
+                    }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-    
-    // MARK: - Helpers & Actions
-    
-    private var badgeLabel: String {
-        switch avatarItem.sourceType {
-        case .customMemoji: return "Custom Studio Memoji"
-        case .userMemoji: return "Apple System Memoji"
-        case .builtinAnimoji: return "Apple Animoji"
-        case .randomMemoji: return "Custom Generated"
         }
     }
     
-    private var badgeColor: Color {
-        switch avatarItem.sourceType {
-        case .customMemoji: return .purple
-        case .userMemoji: return .blue
-        case .builtinAnimoji: return .indigo
-        case .randomMemoji: return .orange
-        }
-    }
+    // MARK: - Character Name Section
     
-    private func friendlyPoseName(_ name: String) -> String {
-        AvatarDatabaseReader.shared.metadata(forStickerName: name).title
-    }
-    
-    private func copyVisualAvatar(withBackdrop: Bool = false) {
-        // 1. Capture snapshot directly from live 3D stage (captures exact angle, zoom, and active pose)
-        var visualImage: NSImage? = stageController.captureSnapshot()
-        
-        // 2. Fall back to on-demand posed renderer if stage snapshot isn't available
-        if visualImage == nil, let avatar = avatarObject {
-            visualImage = AvatarKitBridge.shared.snapshot(
-                avatar: avatar,
-                poseName: activePoseName,
-                animojiNamed: isAnimoji ? animojiName : nil,
-                size: CGSize(width: 1024, height: 1024)
-            )
-        }
-        
-        guard let originalImage = visualImage else { return }
-        
-        let finalImage: NSImage
-        if withBackdrop {
-            finalImage = StickerExportManager.shared.renderWithRadialBackdrop(
-                avatarImage: originalImage,
-                backdropColors: backdrop.nsColors
-            )
-        } else {
-            finalImage = originalImage
-        }
-        
-        StickerExportManager.shared.copyToClipboard(image: finalImage)
-        
-        copiedNotificationText = withBackdrop ? "Copied with Backdrop!" : "Copied Visual PNG!"
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            showCopiedAlert = true
-        }
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            withAnimation {
-                showCopiedAlert = false
+    private var nameSection: some View {
+        Group {
+            if isEditingNameInline {
+                HStack(spacing: 8) {
+                    TextField("Character Name", text: $editedName, onCommit: saveInlineName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 30, weight: .regular))
+                        .foregroundColor(.black)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 300)
+                    
+                    Button(action: saveInlineName) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.black)
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Text(avatarItem.displayName)
+                        .font(.system(size: 30, weight: .regular))
+                        .foregroundColor(.black)
+                    
+                    if isHoveringName && onRenameRequested != nil {
+                        Button(action: {
+                            editedName = avatarItem.displayName
+                            isEditingNameInline = true
+                        }) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 14))
+                                .foregroundColor(Color.black.opacity(0.5))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .onHover { h in
+                    isHoveringName = h
+                }
+                .onTapGesture(count: 2) {
+                    if onRenameRequested != nil {
+                        editedName = avatarItem.displayName
+                        isEditingNameInline = true
+                    }
+                }
             }
         }
     }
     
-    private func resetCamera() {
-        withAnimation {
-            activePoseName = nil
+    // MARK: - Action Buttons Row (Copy & Share)
+    
+    private var actionButtonsRow: some View {
+        HStack(spacing: 14) {
+            // [ 📋 Copy ] Button
+            Button(action: copyAvatarToClipboard) {
+                HStack(spacing: 12) {
+                    Image(systemName: showCopiedFeedback ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundColor(.black)
+                    
+                    Text(showCopiedFeedback ? "Copied!" : "Copy")
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundColor(.black)
+                }
+                .frame(width: 260, height: 50)
+                .background(AppTheme.buttonBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+            }
+            .buttonStyle(.plain)
+            .help("Copy transparent Memoji PNG to clipboard (⌘C)")
+            
+            // [ 📤 ] Share / Export Button
+            Button(action: shareAvatar) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundColor(.black)
+                    .frame(width: 50, height: 50)
+                    .background(AppTheme.buttonBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+            }
+            .buttonStyle(.plain)
+            .help("Share or export avatar")
         }
+    }
+    
+    // MARK: - Actions
+    
+    private func handleReset() {
         if let view = stageController.avtView {
             AvatarKitBridge.shared.resetCameraFraming(on: view)
         }
+        onResetPoseAndCamera()
         stageMutationId = UUID()
+        onCopiedNotification?("Framing and pose reset")
     }
     
-    private func shareAvatar() {
-        var visualImage: NSImage? = stageController.captureSnapshot()
-        if visualImage == nil, let avatar = avatarObject {
-            visualImage = AvatarKitBridge.shared.snapshot(
+    private func copyAvatarToClipboard() {
+        // 1. Try to capture from live 3D stage
+        var image: NSImage? = stageController.captureSnapshot(preferredSize: CGSize(width: 1024, height: 1024))
+        
+        // 2. Fall back to on-demand render
+        if image == nil, let avatar = avatarObject {
+            image = AvatarKitBridge.shared.snapshot(
                 avatar: avatar,
                 poseName: activePoseName,
                 animojiNamed: isAnimoji ? animojiName : nil,
                 size: CGSize(width: 1024, height: 1024)
             )
         }
-        guard let snap = visualImage,
-              let tempURL = StickerExportManager.shared.createTemporaryFile(for: snap, filename: "\(avatarItem.displayName)_Visual") else {
+        
+        guard let finalImage = image else { return }
+        
+        StickerExportManager.shared.copyToClipboard(image: finalImage)
+        
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+            showCopiedFeedback = true
+        }
+        onCopiedNotification?("Copied transparent PNG to clipboard")
+        
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            withAnimation {
+                showCopiedFeedback = false
+            }
+        }
+    }
+    
+    private func shareAvatar() {
+        var image: NSImage? = stageController.captureSnapshot(preferredSize: CGSize(width: 1024, height: 1024))
+        if image == nil, let avatar = avatarObject {
+            image = AvatarKitBridge.shared.snapshot(
+                avatar: avatar,
+                poseName: activePoseName,
+                animojiNamed: isAnimoji ? animojiName : nil,
+                size: CGSize(width: 1024, height: 1024)
+            )
+        }
+        guard let snap = image,
+              let tempURL = StickerExportManager.shared.createTemporaryFile(for: snap, filename: "\(avatarItem.displayName)_Snapshot") else {
             return
         }
         
         let picker = NSSharingServicePicker(items: [tempURL])
         if let window = NSApplication.shared.keyWindow, let contentView = window.contentView {
-            picker.show(relativeTo: NSRect(x: contentView.bounds.midX, y: contentView.bounds.maxY - 40, width: 1, height: 1), of: contentView, preferredEdge: .maxY)
+            picker.show(relativeTo: NSRect(x: contentView.bounds.midX, y: contentView.bounds.minY + 60, width: 1, height: 1), of: contentView, preferredEdge: .maxY)
         }
     }
-}
-
-private struct MiniNeutralPill: View {
-    let avatar: AnyObject?
-    let isSelected: Bool
-    let mutationId: UUID
-    let onSelect: () -> Void
     
-    @State private var thumbnail: NSImage?
-    
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 6) {
-                if let img = thumbnail {
-                    Image(nsImage: img)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 18, height: 18)
-                        .clipShape(Circle())
-                } else {
-                    Image(systemName: "face.smiling")
-                        .font(.system(size: 11))
-                }
-                
-                Text("Neutral")
-                    .font(.system(size: 11, weight: isSelected ? .bold : .medium))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(isSelected ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
-            .foregroundColor(isSelected ? .white : .primary)
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.06), lineWidth: 1)
-            )
+    private func saveInlineName() {
+        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            onRenameRequested?(trimmed)
         }
-        .buttonStyle(.plain)
-        .task(id: "\(mutationId.uuidString)_\(avatar != nil ? UInt(bitPattern: ObjectIdentifier(avatar!)) : 0)") {
-            if let avatar = avatar {
-                thumbnail = AvatarKitBridge.shared.snapshot(avatar: avatar, size: CGSize(width: 60, height: 60), scale: 1.5)
-            }
-        }
-    }
-}
-
-private struct MiniPosePill: View {
-    let sticker: StickerItem
-    let avatar: AnyObject?
-    let isAnimoji: Bool
-    let animojiName: String?
-    let isSelected: Bool
-    let mutationId: UUID
-    let onSelect: () -> Void
-    
-    @State private var thumbnail: NSImage?
-    
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 6) {
-                if let img = thumbnail {
-                    Image(nsImage: img)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 18, height: 18)
-                        .clipShape(Circle())
-                } else {
-                    Text(sticker.emoji)
-                        .font(.system(size: 11))
-                }
-                
-                Text(sticker.localizedTitle)
-                    .font(.system(size: 11, weight: isSelected ? .bold : .medium))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(isSelected ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
-            .foregroundColor(isSelected ? .white : .primary)
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.06), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .task(id: "\(sticker.name)_\(mutationId.uuidString)_\(avatar != nil ? UInt(bitPattern: ObjectIdentifier(avatar!)) : 0)") {
-            if let avatar = avatar {
-                if let img = await AvatarKitBridge.shared.generateSticker(
-                    avatar: avatar,
-                    poseName: sticker.name,
-                    animojiNamed: isAnimoji ? animojiName : nil,
-                    scale: 1.0
-                ) {
-                    thumbnail = img
-                    return
-                }
-            }
-            if let url = sticker.localFileURL, let img = NSImage(contentsOf: url) {
-                thumbnail = img
-            }
-        }
+        isEditingNameInline = false
     }
 }
