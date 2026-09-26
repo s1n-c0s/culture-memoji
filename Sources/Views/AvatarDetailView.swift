@@ -176,34 +176,55 @@ public struct AvatarDetailView: View {
                 Spacer()
                 
                 // Subtle gesture hint with Quick Reset or Live Tracking Status
+                // Live Tracking Status Bar
                 if isLiveCameraActive {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(faceTracker.isFaceDetected ? Color.green : Color.orange)
-                            .frame(width: 7, height: 7)
-                        Text(faceTracker.isFaceDetected ? "Live Face-Tracking Active" : "Detecting Face…")
-                            .font(.system(size: 10.5, weight: .medium))
-                        
-                        Text("•")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.secondary.opacity(0.35))
-                        
-                        Button(action: toggleLiveTracking) {
-                            Text("Stop Tracking")
+                    HStack(spacing: 8) {
+                        // Animated status dot
+                        ZStack {
+                            if faceTracker.isFaceDetected {
+                                Circle()
+                                    .fill(faceTracker.isEmotePlaying ? Color.purple.opacity(0.35) : Color.green.opacity(0.3))
+                                    .frame(width: 14, height: 14)
+                            }
+                            Circle()
+                                .fill(faceTracker.isFaceDetected
+                                      ? (faceTracker.isEmotePlaying ? Color.purple : Color.green)
+                                      : Color.orange)
+                                .frame(width: 7, height: 7)
+                        }
+
+                        if faceTracker.isEmotePlaying {
+                            Text("Playing Emote…")
                                 .font(.system(size: 10.5, weight: .semibold))
-                                .foregroundColor(.red.opacity(0.85))
+                                .foregroundColor(.purple.opacity(0.9))
+                        } else {
+                            Text(faceTracker.isFaceDetected ? "Live Tracking" : "Searching for face…")
+                                .font(.system(size: 10.5, weight: .medium))
+                        }
+
+                        Divider()
+                            .frame(height: 10)
+                            .opacity(0.35)
+
+                        Button(action: toggleLiveTracking) {
+                            Label("Stop", systemImage: "stop.circle.fill")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundColor(.red.opacity(0.8))
                         }
                         .buttonStyle(.plain)
                     }
-                    .foregroundColor(.secondary.opacity(0.85))
+                    .foregroundColor(.secondary.opacity(0.9))
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
+                    .padding(.vertical, 6)
                     .background(.ultraThinMaterial)
                     .clipShape(Capsule())
-                    .overlay(
-                        Capsule().stroke(Color.primary.opacity(0.06), lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.04), radius: 4, y: 1)
+                    .overlay(Capsule().stroke(
+                        faceTracker.isEmotePlaying ? Color.purple.opacity(0.4) : Color.primary.opacity(0.07),
+                        lineWidth: 1
+                    ))
+                    .shadow(color: Color.black.opacity(0.05), radius: 6, y: 2)
+                    .animation(.easeInOut(duration: 0.25), value: faceTracker.isEmotePlaying)
+                    .animation(.easeInOut(duration: 0.2), value: faceTracker.isFaceDetected)
                 } else {
                     HStack(spacing: 6) {
                         Image(systemName: "hand.draw")
@@ -556,63 +577,88 @@ public struct AvatarDetailView: View {
     }
     
     private var liveTrackingCameraPiP: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .top) {
+        ZStack(alignment: .bottom) {
+            // Camera feed
+            ZStack {
+                Color.black
+
                 CameraPreviewView(previewLayer: faceTracker.previewLayer)
-                    .frame(width: 192, height: 144)
-                    .background(Color.black)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                
+                    .frame(width: 160, height: 120)
+
+                // Starting camera spinner
                 if faceTracker.previewLayer == nil && !faceTracker.permissionDenied {
-                    VStack(spacing: 8) {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                        Text("Starting Camera…")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.white.opacity(0.8))
+                    VStack(spacing: 7) {
+                        ProgressView().scaleEffect(0.75).tint(.white)
+                        Text("Starting…")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white.opacity(0.7))
                     }
-                    .frame(width: 192, height: 144)
-                    .background(Color.black.opacity(0.7))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                
-                // Top control bar inside PiP
-                HStack(spacing: 6) {
-                    HStack(spacing: 4.5) {
-                        Circle()
-                            .fill(faceTracker.isFaceDetected ? Color.green : Color.orange)
-                            .frame(width: 6, height: 6)
-                        Text(faceTracker.isFaceDetected ? "Tracking" : "Searching")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.white)
-                    }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3.5)
-                    .background(Color.black.opacity(0.55))
-                    .clipShape(Capsule())
-                    
-                    Spacer()
-                    
-                    Button(action: toggleLiveTracking) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9.5, weight: .bold))
-                            .foregroundColor(.white.opacity(0.9))
-                            .frame(width: 20, height: 20)
-                            .background(Color.black.opacity(0.55))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Stop Face-Tracking")
-                }
-                .padding(8)
             }
+            .frame(width: 160, height: 120)
+
+            // Frosted bottom bar
+            HStack(spacing: 6) {
+                // Status badge
+                HStack(spacing: 4) {
+                    ZStack {
+                        if faceTracker.isFaceDetected {
+                            Circle()
+                                .fill(faceTracker.isEmotePlaying
+                                      ? Color.purple.opacity(0.4) : Color.green.opacity(0.35))
+                                .frame(width: 11, height: 11)
+                        }
+                        Circle()
+                            .fill(faceTracker.isFaceDetected
+                                  ? (faceTracker.isEmotePlaying ? Color.purple : Color.green)
+                                  : Color.orange)
+                            .frame(width: 6, height: 6)
+                    }
+                    Text(faceTracker.isEmotePlaying ? "Emote" :
+                         faceTracker.isFaceDetected ? "Tracking" : "Searching")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.black.opacity(0.5))
+                .clipShape(Capsule())
+
+                Spacer()
+
+                // Stop button
+                Button(action: toggleLiveTracking) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.white.opacity(0.85))
+                        .frame(width: 20, height: 20)
+                        .background(Color.black.opacity(0.5))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Stop Face-Tracking")
+            }
+            .padding(8)
+            .background(
+                LinearGradient(
+                    colors: [Color.clear, Color.black.opacity(0.55)],
+                    startPoint: .top, endPoint: .bottom
+                )
+            )
         }
+        .frame(width: 160, height: 120)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1.5)
+                .stroke(
+                    faceTracker.isEmotePlaying
+                        ? Color.purple.opacity(0.6)
+                        : Color.white.opacity(0.18),
+                    lineWidth: 1.5
+                )
         )
-        .shadow(color: Color.black.opacity(0.28), radius: 14, x: 0, y: 6)
+        .shadow(color: Color.black.opacity(0.35), radius: 16, x: 0, y: 6)
+        .animation(.easeInOut(duration: 0.25), value: faceTracker.isEmotePlaying)
     }
     
     private var cameraPermissionDeniedOverlay: some View {

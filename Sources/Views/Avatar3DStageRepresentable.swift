@@ -229,7 +229,18 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
             // Update pose when changed (including nil = clear back to neutral)
             context.coordinator.currentPose = activePoseName
             if FaceTrackingManager.shared.isRunning {
-                // If live tracking is active, do not apply static sticker poses that lock expressions
+                // Live tracking is active — play emote as a one-shot overlay,
+                // then auto-resume blend shape tracking after it finishes.
+                if let pose = activePoseName, !pose.isEmpty, pose != "neutral" {
+                    FaceTrackingManager.shared.playEmote(
+                        named: pose, on: avtView,
+                        isAnimoji: isAnimoji, animojiName: animojiName,
+                        duration: 2.5
+                    )
+                } else {
+                    // Clearing emote while tracking — cancel any active emote overlay
+                    FaceTrackingManager.shared.cancelEmote()
+                }
             } else if let pose = activePoseName {
                 AvatarKitBridge.shared.applyStickerPose(
                     named: pose,

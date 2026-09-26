@@ -23,6 +23,17 @@ public final class AvatarKitBridge {
     private var avtStickerGeneratorClass: AnyClass?
     private var avtStickerGeneratorOptionsClass: AnyClass?
     
+    // Cached IMP pointers for hot-path real-time pose calls (avoid class_getInstanceMethod every frame)
+    typealias SetWeightIMP = @convention(c) (AnyObject, Selector, Double, NSString) -> Void
+    typealias SetNeckIMP   = @convention(c) (AnyObject, Selector, simd_quatf) -> Void
+    typealias SetPoseIMP   = @convention(c) (AnyObject, Selector, AnyObject) -> Void
+    private var cachedSetWeightIMP: SetWeightIMP?
+    private var cachedSetNeckIMP:   SetNeckIMP?
+    private var cachedSetPoseIMP:   SetPoseIMP?
+    private var cachedSetWeightSel: Selector = NSSelectorFromString("setWeight:forBlendShapeNamed:")
+    private var cachedSetNeckSel:   Selector = NSSelectorFromString("setNeckOrientation:")
+    private var cachedSetPoseSel:   Selector = NSSelectorFromString("setPose:")
+    
     private init() {
         loadFrameworksIfNeeded()
     }
@@ -43,6 +54,21 @@ public final class AvatarKitBridge {
             avtStickerConfigurationClass = NSClassFromString("AVTStickerConfiguration")
             avtStickerGeneratorClass = NSClassFromString("AVTStickerGenerator")
             avtStickerGeneratorOptionsClass = NSClassFromString("AVTStickerGeneratorOptions")
+            
+            // Pre-cache hot-path IMP pointers to avoid repeated ObjC runtime lookups per frame
+            if let poseCls = avtAvatarPoseClass {
+                if let m = class_getInstanceMethod(poseCls, cachedSetWeightSel) {
+                    cachedSetWeightIMP = unsafeBitCast(method_getImplementation(m), to: SetWeightIMP.self)
+                }
+                if let m = class_getInstanceMethod(poseCls, cachedSetNeckSel) {
+                    cachedSetNeckIMP = unsafeBitCast(method_getImplementation(m), to: SetNeckIMP.self)
+                }
+            }
+            if let avatarCls = avtAvatarClass {
+                if let m = class_getInstanceMethod(avatarCls, cachedSetPoseSel) {
+                    cachedSetPoseIMP = unsafeBitCast(method_getImplementation(m), to: SetPoseIMP.self)
+                }
+            }
             return true
         }
         return false
@@ -384,6 +410,40 @@ public final class AvatarKitBridge {
     }
     
     // MARK: - Real-Time Poses & Blend Shapes
+
+    /// Extracts the static blend-shape weight dictionary from a sticker config's `poseAnimation.staticPose`.
+    /// Returns nil if the config has no static pose (animated-only stickers).
+    /// Key names match AvatarKit's internal naming (e.g. "mouthSmile_L", "eyeBlink_R").
+    public func extractStaticPoseWeights(named stickerName: String,
+                                          animojiNamed: String? = nil) -> [String: Double]? {
+        guard let cfg = stickerConfiguration(named: stickerName, animojiNamed: animojiNamed) else { return nil }
+
+        // cfg.poseAnimation → AVTAvatarPoseAnimation
+        let paSel = NSSelectorFromString("poseAnimation")
+        guard (cfg as AnyObject).responds(to: paSel),
+              let anim = (cfg as AnyObject).perform(paSel)?.takeUnretainedValue() else { return nil }
+
+        // anim.staticPose → AVTAvatarPose
+        let spSel = NSSelectorFromString("staticPose")
+        guard (anim as AnyObject).responds(to: spSel),
+              let pose = (anim as AnyObject).perform(spSel)?.takeUnretainedValue() else { return nil }
+
+        // pose.dictionaryRepresentation → NSDictionary
+        let dictSel = NSSelectorFromString("dictionaryRepresentation")
+        guard (pose as AnyObject).responds(to: dictSel),
+              let raw = (pose as AnyObject).perform(dictSel)?.takeUnretainedValue(),
+              let dict = raw as? [String: Any] else { return nil }
+
+        // Convert NSNumber values to Double, skip non-numeric entries (e.g. neckOrientation array)
+        var weights: [String: Double] = [:]
+        for (key, val) in dict {
+            if let num = val as? NSNumber {
+                weights[key] = num.doubleValue
+            }
+        }
+        return weights.isEmpty ? nil : weights
+    }
+
     
     /// Returns the avatar model attached to the given AVTView or AVTRecordView
     public func avatar(on view: NSView) -> AnyObject? {
@@ -392,38 +452,49 @@ public final class AvatarKitBridge {
         return (view as AnyObject).perform(sel)?.takeUnretainedValue()
     }
     
-    /// Constructs a real-time AVTAvatarPose with blend shape weights (0.0...1.0) and optional neck rotation
+    /// Constructs a real-time AVTAvatarPose with blend shape weights (0.0...1.0) and optional neck rotation.
+    /// Uses pre-cached IMP pointers for zero-overhead dispatch on each frame.
     public func buildAvatarPose(weights: [String: Double], neckOrientation: simd_quatf? = nil) -> AnyObject? {
         guard let poseCls = avtAvatarPoseClass as? NSObject.Type else { return nil }
         let pose = poseCls.init()
         
-        let setWeightSel = NSSelectorFromString("setWeight:forBlendShapeNamed:")
-        if let method = class_getInstanceMethod(poseCls, setWeightSel) {
-            typealias SetWeightFunc = @convention(c) (AnyObject, Selector, Double, NSString) -> Void
-            let callable = unsafeBitCast(method_getImplementation(method), to: SetWeightFunc.self)
+        if let imp = cachedSetWeightIMP {
             for (name, weight) in weights {
-                callable(pose, setWeightSel, weight, name as NSString)
+                imp(pose, cachedSetWeightSel, weight, name as NSString)
+            }
+        } else {
+            // Fallback: slow path if cache miss (first frame before IMP warm-up)
+            if let method = class_getInstanceMethod(poseCls, cachedSetWeightSel) {
+                let callable = unsafeBitCast(method_getImplementation(method), to: SetWeightIMP.self)
+                for (name, weight) in weights {
+                    callable(pose, cachedSetWeightSel, weight, name as NSString)
+                }
             }
         }
         
-        if let neckOrientation = neckOrientation {
-            let setNeckSel = NSSelectorFromString("setNeckOrientation:")
-            if let method = class_getInstanceMethod(poseCls, setNeckSel) {
-                typealias SetNeckFunc = @convention(c) (AnyObject, Selector, simd_quatf) -> Void
-                let callable = unsafeBitCast(method_getImplementation(method), to: SetNeckFunc.self)
-                callable(pose, setNeckSel, neckOrientation)
+        if let neck = neckOrientation {
+            if let imp = cachedSetNeckIMP {
+                imp(pose, cachedSetNeckSel, neck)
+            } else if let method = class_getInstanceMethod(poseCls, cachedSetNeckSel) {
+                let callable = unsafeBitCast(method_getImplementation(method), to: SetNeckIMP.self)
+                callable(pose, cachedSetNeckSel, neck)
             }
         }
         
         return pose
     }
     
-    /// Sets an AVTAvatarPose directly on the avatar of the specified view
+    /// Sets an AVTAvatarPose directly on the avatar of the specified view.
+    /// Uses pre-cached IMP pointer for zero per-frame ObjC overhead.
     public func applyPose(_ pose: AnyObject, on view: NSView) {
         guard let av = avatar(on: view) else { return }
-        let sel = NSSelectorFromString("setPose:")
-        if (av as AnyObject).responds(to: sel) {
-            _ = (av as AnyObject).perform(sel, with: pose)
+        if let imp = cachedSetPoseIMP {
+            imp(av, cachedSetPoseSel, pose)
+        } else {
+            // Fallback: slow path
+            if (av as AnyObject).responds(to: cachedSetPoseSel) {
+                _ = (av as AnyObject).perform(cachedSetPoseSel, with: pose)
+            }
         }
     }
     

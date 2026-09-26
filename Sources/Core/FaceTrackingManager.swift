@@ -4,176 +4,222 @@ import Vision
 import AppKit
 import SwiftUI
 import simd
+import CoreVideo
 
 /// Real-time live camera face-tracking manager using Apple Vision and AVFoundation.
-/// Detects facial landmarks and 3D head pose and maps them directly to 52 ARKit blend shapes on 3D Memojis.
+///
+/// Architecture:
+///   - **CVDisplayLink** drives avatar pose at 60fps — independent of Vision's frame rate.
+///   - **Quaternion SLERP** (t=0.18) smooths head rotation on the 4D sphere, giving
+///     FaceTime-like buttery motion with no euler-angle discontinuities.
+///   - **VNDetectFaceRectanglesRequest** (cheap) runs every camera frame → fresh roll/yaw/pitch at 30fps.
+///   - **VNDetectFaceLandmarksRequest** (expensive) runs every 2nd frame (~15fps) for blend shapes.
 @MainActor
 public final class FaceTrackingManager: NSObject, ObservableObject {
     public static let shared = FaceTrackingManager()
-    
+
     @Published public var isRunning: Bool = false
     @Published public var isFaceDetected: Bool = false
     @Published public var permissionDenied: Bool = false
     @Published public var isCameraAvailable: Bool = true
     @Published public var previewLayer: AVCaptureVideoPreviewLayer?
-    
+
     private nonisolated(unsafe) var captureSession: AVCaptureSession?
     private nonisolated(unsafe) var videoOutput: AVCaptureVideoDataOutput?
     private let captureQueue = DispatchQueue(label: "com.culture.facetracker.capture", qos: .userInteractive)
-    private let visionQueue = DispatchQueue(label: "com.culture.facetracker.vision", qos: .userInteractive)
-    
+    private let visionQueue  = DispatchQueue(label: "com.culture.facetracker.vision",  qos: .userInteractive)
+
     private weak var targetStageView: NSView?
     private nonisolated(unsafe) var sampleDelegate: FaceTrackingSampleBufferDelegate?
-    
-    // Exponential moving average smoothing state
+
+    // MARK: - Rotation state (SLERP)
+    /// Target quaternion written from Vision thread (via Task @MainActor).
+    private var targetNeckQuat:  simd_quatf = .faceIdentity
+    /// Currently displayed quaternion, advanced toward targetNeckQuat at 60fps by CVDisplayLink.
+    private var currentNeckQuat: simd_quatf = .faceIdentity
+
+    // MARK: - Blend shape state (EMA, ~15fps)
     private var smoothedWeights: [String: Double] = [:]
-    private var smoothedRoll: Float = 0
-    private var smoothedYaw: Float = 0
-    private var smoothedPitch: Float = 0
-    
-    private override init() {
-        super.init()
-    }
-    
-    /// Updates the target stage AVTView being driven by face tracking
-    public func updateTargetView(_ view: NSView?) {
-        self.targetStageView = view
-        if let view = view {
-            AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.0)
-        }
-    }
-    
-    /// Checks camera permission and starts face tracking on the provided target AVTView
-    public func startTracking(on view: NSView?) {
-        self.targetStageView = view
-        
-        if let view = view {
-            AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.0)
-        }
-        
-        // If capture session is already running, just update target view and continue seamlessly
-        if isRunning, captureSession != nil {
+
+    // MARK: - Frame throttle for expensive landmark detection
+    /// Every frame: cheap face-rect (head pose). Every 2nd frame: full landmarks (blend shapes).
+    private nonisolated(unsafe) var _frameCounterAtomic: Int32 = 0
+    private let landmarkFrameInterval: Int32 = 2
+
+    // MARK: - CVDisplayLink (60fps render loop)
+    private nonisolated(unsafe) var displayLink: CVDisplayLink?
+
+    // MARK: - Emote overlay state
+    /// Blend shape weights from the currently active emote. Nil = no emote.
+    private var emoteWeights: [String: Double]? = nil
+    /// 0.0 = pure live tracking, 1.0 = full emote expression blended in.
+    private var emoteBlend: Double = 0.0
+    @Published public var isEmotePlaying: Bool = false
+    private var emoteTask: Task<Void, Never>?
+
+    private override init() { super.init() }
+
+    // MARK: - Emote API
+
+    /// Blends a sticker emote expression on top of live head tracking.
+    /// The emote's blend-shape weights are extracted directly from the sticker asset —
+    /// NO animation timeline is installed, so `stepSlerp` remains in full control.
+    /// Head rotation keeps following your head the whole time.
+    public func playEmote(named poseName: String, on view: NSView,
+                          isAnimoji: Bool = false, animojiName: String? = nil,
+                          duration: Double = 2.5) {
+        guard isRunning else { return }
+        emoteTask?.cancel()
+
+        // Extract the emote's static blend shapes from the sticker asset
+        let weights = AvatarKitBridge.shared.extractStaticPoseWeights(
+            named: poseName,
+            animojiNamed: isAnimoji ? animojiName : nil
+        )
+        guard let w = weights, !w.isEmpty else {
+            // No static pose data — nothing to blend, just ignore
             return
         }
-        
-        let status = AVCaptureDevice.authorizationStatus(for: .video)
-        switch status {
+
+        emoteWeights  = w
+        isEmotePlaying = true
+
+        // Animate emoteBlend 0→1 over 0.3s (fade-in), hold, then 1→0 over 0.3s (fade-out)
+        let fadeIn   = 0.3
+        let fadeOut  = 0.3
+        let holdTime = max(0, duration - fadeIn - fadeOut)
+
+        emoteTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            // Fade in
+            let steps = 18  // ~0.3s at 60fps
+            for i in 1...steps {
+                guard !Task.isCancelled else { return }
+                self.emoteBlend = Double(i) / Double(steps)
+                try? await Task.sleep(nanoseconds: UInt64(fadeIn / Double(steps) * 1_000_000_000))
+            }
+            self.emoteBlend = 1.0
+
+            // Hold
+            if holdTime > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(holdTime * 1_000_000_000))
+            }
+            guard !Task.isCancelled else { return }
+
+            // Fade out
+            for i in 1...steps {
+                guard !Task.isCancelled else { return }
+                self.emoteBlend = 1.0 - Double(i) / Double(steps)
+                try? await Task.sleep(nanoseconds: UInt64(fadeOut / Double(steps) * 1_000_000_000))
+            }
+            self.emoteBlend    = 0.0
+            self.emoteWeights  = nil
+            self.isEmotePlaying = false
+        }
+    }
+
+    /// Immediately fades out any active emote and returns to pure live face tracking.
+    public func cancelEmote() {
+        emoteTask?.cancel()
+        emoteTask     = nil
+        emoteWeights  = nil
+        emoteBlend    = 0.0
+        isEmotePlaying = false
+    }
+
+    // MARK: - Public API
+
+    /// Updates the target stage AVTView being driven by face tracking.
+    public func updateTargetView(_ view: NSView?) {
+        targetStageView = view
+        if let view { AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.0) }
+    }
+
+    /// Requests camera permission (if needed) and begins face tracking on `view`.
+    public func startTracking(on view: NSView?) {
+        targetStageView = view
+        if let view { AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.0) }
+
+        // If already running, seamlessly re-target without restarting the session.
+        if isRunning, captureSession != nil { return }
+
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
-            self.permissionDenied = false
-            self.setupAndStartSession()
+            permissionDenied = false
+            setupAndStartSession()
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 DispatchQueue.main.async {
-                    if granted {
-                        self?.permissionDenied = false
-                        self?.setupAndStartSession()
-                    } else {
-                        self?.permissionDenied = true
-                        self?.isRunning = false
-                    }
+                    if granted { self?.permissionDenied = false; self?.setupAndStartSession() }
+                    else        { self?.permissionDenied = true;  self?.isRunning = false }
                 }
             }
-        case .denied, .restricted:
-            self.permissionDenied = true
-            self.isRunning = false
-        @unknown default:
-            self.permissionDenied = true
-            self.isRunning = false
+        default:
+            permissionDenied = true
+            isRunning = false
         }
     }
-    
-    /// Stops camera face tracking and smoothly resets the avatar pose
+
+    /// Stops tracking and smoothly returns the avatar to its neutral pose.
     public func stopTracking() {
+        stopDisplayLink()
         captureQueue.async { [weak self] in
-            guard let self = self else { return }
-            if let session = self.captureSession, session.isRunning {
-                session.stopRunning()
-            }
-            self.captureSession = nil
-            self.videoOutput = nil
-            self.sampleDelegate = nil
-            
+            guard let self else { return }
+            captureSession?.stopRunning()
+            captureSession = nil
+            videoOutput = nil
+            sampleDelegate = nil
             DispatchQueue.main.async {
                 self.isRunning = false
                 self.isFaceDetected = false
                 self.previewLayer = nil
                 self.smoothedWeights.removeAll()
-                self.smoothedRoll = 0
-                self.smoothedYaw = 0
-                self.smoothedPitch = 0
-                
-                // Return avatar to neutral pose
-                if let view = self.targetStageView {
-                    AvatarKitBridge.shared.resetToNeutralPose(on: view)
-                }
+                self.currentNeckQuat = .faceIdentity
+                self.targetNeckQuat  = .faceIdentity
+                if let v = self.targetStageView { AvatarKitBridge.shared.resetToNeutralPose(on: v) }
             }
         }
     }
-    
+
+    // MARK: - Session Setup
+
     private func setupAndStartSession() {
         captureQueue.async { [weak self] in
-            guard let self = self else { return }
-            
-            // Clean up any stale existing session first
-            if let existing = self.captureSession {
-                if existing.isRunning {
-                    existing.stopRunning()
-                }
-                self.captureSession = nil
-                self.videoOutput = nil
-                self.sampleDelegate = nil
-            }
-            
+            guard let self else { return }
+
+            // Tear down any stale session.
+            captureSession?.stopRunning()
+            captureSession = nil; videoOutput = nil; sampleDelegate = nil
+
             let session = AVCaptureSession()
             session.beginConfiguration()
             session.sessionPreset = .vga640x480
-            
-            // Find front-facing or default video camera
-            var cameraDevice: AVCaptureDevice?
-            if let front = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) {
-                cameraDevice = front
-            } else if let anyCamera = AVCaptureDevice.default(for: .video) {
-                cameraDevice = anyCamera
-            }
-            
-            guard let camera = cameraDevice,
-                  let input = try? AVCaptureDeviceInput(device: camera),
+
+            let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
+                      ?? AVCaptureDevice.default(for: .video)
+            guard let cam = camera,
+                  let input = try? AVCaptureDeviceInput(device: cam),
                   session.canAddInput(input) else {
-                DispatchQueue.main.async {
-                    self.isCameraAvailable = false
-                    self.isRunning = false
-                }
-                session.commitConfiguration()
-                return
+                DispatchQueue.main.async { self.isCameraAvailable = false; self.isRunning = false }
+                session.commitConfiguration(); return
             }
-            
             session.addInput(input)
-            
+
             let output = AVCaptureVideoDataOutput()
             output.alwaysDiscardsLateVideoFrames = true
-            output.videoSettings = [
-                kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
-            ]
-            
-            let delegate = FaceTrackingSampleBufferDelegate { [weak self] sampleBuffer in
-                self?.processSampleBuffer(sampleBuffer)
-            }
-            self.sampleDelegate = delegate
-            output.setSampleBufferDelegate(delegate, queue: self.visionQueue)
-            
-            guard session.canAddOutput(output) else {
-                session.commitConfiguration()
-                return
-            }
-            
+            output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)]
+            let delegate = FaceTrackingSampleBufferDelegate { [weak self] buf in self?.processSampleBuffer(buf) }
+            sampleDelegate = delegate
+            output.setSampleBufferDelegate(delegate, queue: visionQueue)
+            guard session.canAddOutput(output) else { session.commitConfiguration(); return }
             session.addOutput(output)
             session.commitConfiguration()
-            
-            self.captureSession = session
-            self.videoOutput = output
-            
+
+            captureSession = session
+            videoOutput = output
             session.startRunning()
-            
+
             DispatchQueue.main.async {
                 let layer = AVCaptureVideoPreviewLayer(session: session)
                 layer.videoGravity = .resizeAspectFill
@@ -184,229 +230,235 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
                 self.isRunning = session.isRunning
                 self.isCameraAvailable = true
                 self.previewLayer = layer
+                self.startDisplayLink()
             }
         }
     }
-    
-    nonisolated private func processSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        
-        let request = VNDetectFaceLandmarksRequest { [weak self] req, err in
-            guard let self = self else { return }
-            guard let observations = req.results as? [VNFaceObservation],
-                  let face = observations.first,
-                  let landmarks = face.landmarks else {
-                Task { @MainActor in
-                    self.isFaceDetected = false
-                }
-                return
-            }
-            
-            let weights = Self.extractWeights(landmarks: landmarks)
-            let roll = face.roll?.floatValue ?? 0
-            let yaw = face.yaw?.floatValue ?? 0
-            let pitch = face.pitch?.floatValue ?? 0
-            
-            Task { @MainActor in
-                self.isFaceDetected = true
-                self.applyPose(targetWeights: weights, rollVal: roll, yawVal: yaw, pitchVal: pitch)
-            }
-        }
-        
-        // Fast processing on Apple Neural Engine
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
-        try? handler.perform([request])
+
+    // MARK: - CVDisplayLink (60fps SLERP render loop)
+
+    private func startDisplayLink() {
+        guard displayLink == nil else { return }
+        var dl: CVDisplayLink?
+        CVDisplayLinkCreateWithActiveCGDisplays(&dl)
+        guard let link = dl else { return }
+
+        // Pass self as unretained raw pointer — CVDisplayLink holds the callback alive.
+        // We retain once here and release when stopDisplayLink is called.
+        let ptr = Unmanaged.passRetained(self).toOpaque()
+        CVDisplayLinkSetOutputCallback(link, { _, _, _, _, _, ctx -> CVReturn in
+            let mgr = Unmanaged<FaceTrackingManager>.fromOpaque(ctx!).takeUnretainedValue()
+            DispatchQueue.main.async { mgr.stepSlerp() }
+            return kCVReturnSuccess
+        }, ptr)
+        CVDisplayLinkStart(link)
+        displayLink = link
+        // Release the extra retain — the opaque pointer in the callback is now the only owner.
+        Unmanaged<FaceTrackingManager>.fromOpaque(ptr).release()
     }
-    
-    nonisolated private static func extractWeights(landmarks: VNFaceLandmarks2D) -> [String: Double] {
-        var targetWeights: [String: Double] = [:]
-        
-        // 1. Eye Blinks (Eye Aspect Ratio)
-        if let leftEye = landmarks.leftEye, leftEye.pointCount >= 6 {
-            let pts = leftEye.normalizedPoints
-            let minY = pts.map { $0.y }.min() ?? 0
-            let maxY = pts.map { $0.y }.max() ?? 0
-            let minX = pts.map { $0.x }.min() ?? 0
-            let maxX = pts.map { $0.x }.max() ?? 0
-            let ear = Double((maxY - minY) / max(maxX - minX, 0.001))
-            let blink = clamp((0.21 - ear) / (0.21 - 0.11), min: 0.0, max: 1.0)
-            targetWeights["eyeBlinkLeft"] = blink
+
+    private func stopDisplayLink() {
+        if let link = displayLink {
+            CVDisplayLinkStop(link)
+            displayLink = nil
         }
-        
-        if let rightEye = landmarks.rightEye, rightEye.pointCount >= 6 {
-            let pts = rightEye.normalizedPoints
-            let minY = pts.map { $0.y }.min() ?? 0
-            let maxY = pts.map { $0.y }.max() ?? 0
-            let minX = pts.map { $0.x }.min() ?? 0
-            let maxX = pts.map { $0.x }.max() ?? 0
-            let ear = Double((maxY - minY) / max(maxX - minX, 0.001))
-            let blink = clamp((0.21 - ear) / (0.21 - 0.11), min: 0.0, max: 1.0)
-            targetWeights["eyeBlinkRight"] = blink
-        }
-        
-        // 2. Jaw Open (Mouth Aspect Ratio)
-        if let lips = landmarks.innerLips ?? landmarks.outerLips, lips.pointCount >= 4 {
-            let pts = lips.normalizedPoints
-            let minY = pts.map { $0.y }.min() ?? 0
-            let maxY = pts.map { $0.y }.max() ?? 0
-            let minX = pts.map { $0.x }.min() ?? 0
-            let maxX = pts.map { $0.x }.max() ?? 0
-            let mar = Double((maxY - minY) / max(maxX - minX, 0.001))
-            let rawJaw = clamp((mar - 0.06) / 0.32, min: 0.0, max: 1.0)
-            targetWeights["jawOpen"] = rawJaw
-        }
-        
-        // 3. Smile & Frown Detection
-        if let lips = landmarks.outerLips, lips.pointCount >= 6 {
-            let pts = lips.normalizedPoints
-            let minXPt = pts.min(by: { $0.x < $1.x }) ?? CGPoint.zero
-            let maxXPt = pts.max(by: { $0.x < $1.x }) ?? CGPoint.zero
-            let avgY = pts.map { $0.y }.reduce(0, +) / CGFloat(pts.count)
-            
-            // Vision coordinates have (0,0) at bottom-left. Smiling raises corners (higher Y).
-            let leftCornerLift = Double(minXPt.y - avgY)
-            let rightCornerLift = Double(maxXPt.y - avgY)
-            
-            let smileLeft = clamp((leftCornerLift + 0.015) / 0.035, min: 0.0, max: 1.0)
-            let smileRight = clamp((rightCornerLift + 0.015) / 0.035, min: 0.0, max: 1.0)
-            targetWeights["mouthSmileLeft"] = smileLeft
-            targetWeights["mouthSmileRight"] = smileRight
-            
-            if smileLeft < 0.1 && smileRight < 0.1 {
-                let frownLeft = clamp((-leftCornerLift - 0.01) / 0.03, min: 0.0, max: 1.0)
-                let frownRight = clamp((-rightCornerLift - 0.01) / 0.03, min: 0.0, max: 1.0)
-                targetWeights["mouthFrownLeft"] = frownLeft
-                targetWeights["mouthFrownRight"] = frownRight
-            }
-        }
-        
-        // 4. Eyebrows (Inner up & brow down)
-        if let brow = landmarks.leftEyebrow, let eye = landmarks.leftEye {
-            let browAvgY = brow.normalizedPoints.map { $0.y }.reduce(0, +) / CGFloat(max(brow.pointCount, 1))
-            let eyeAvgY = eye.normalizedPoints.map { $0.y }.reduce(0, +) / CGFloat(max(eye.pointCount, 1))
-            let dist = Double(browAvgY - eyeAvgY)
-            
-            let browUp = clamp((dist - 0.04) / 0.03, min: 0.0, max: 1.0)
-            targetWeights["browInnerUp"] = browUp
-            
-            if browUp < 0.1 {
-                let browDown = clamp((0.032 - dist) / 0.02, min: 0.0, max: 1.0)
-                targetWeights["browDownLeft"] = browDown
-                targetWeights["browDownRight"] = browDown
-            }
-        }
-        
-        return targetWeights
     }
-    
-    private func applyPose(targetWeights: [String: Double], rollVal: Float, yawVal: Float, pitchVal: Float) {
-        guard let view = targetStageView else { return }
-        
-        // Smooth weights (Exponential Moving Average)
-        let alpha = 0.45
-        let trackedKeys = [
-            "eyeBlinkLeft", "eyeBlinkRight",
-            "jawOpen",
-            "mouthSmileLeft", "mouthSmileRight",
-            "mouthFrownLeft", "mouthFrownRight",
-            "browInnerUp", "browDownLeft", "browDownRight"
-        ]
-        
-        for key in trackedKeys {
-            let targetVal = targetWeights[key] ?? 0.0
-            let current = smoothedWeights[key] ?? 0.0
-            smoothedWeights[key] = current * (1.0 - alpha) + targetVal * alpha
+
+    /// Advances the SLERP one step toward `targetNeckQuat` and pushes the full pose.
+    /// Runs at ~60fps via CVDisplayLink — decoupled from Vision's camera frame rate.
+    /// Also applies emote blend: emoteBlend∈[0,1] crossfades between live tracking and emote expression.
+    private func stepSlerp() {
+        guard isRunning, let view = targetStageView else { return }
+
+        // Ensure we take the short arc (negate target when dot product < 0).
+        var target = targetNeckQuat
+        if simd_dot(currentNeckQuat.vector, target.vector) < 0 { target = simd_quaternion(-target.vector) }
+        currentNeckQuat = simd_slerp(currentNeckQuat, target, 0.18)
+
+        // Merge live tracking weights with emote weights using emoteBlend factor
+        let finalWeights: [String: Double]
+        if emoteBlend > 0.001, let ew = emoteWeights {
+            var merged: [String: Double] = [:]
+            // Union of all keys in both weight dictionaries
+            let allKeys = Set(smoothedWeights.keys).union(ew.keys)
+            for key in allKeys {
+                let live  = smoothedWeights[key] ?? 0.0
+                let emote = ew[key] ?? 0.0
+                merged[key] = live * (1.0 - emoteBlend) + emote * emoteBlend
+            }
+            finalWeights = merged
+        } else {
+            finalWeights = smoothedWeights
         }
-        
-        // 5. Head Pose (Roll, Yaw, Pitch)
-        let rotAlpha: Float = 0.35
-        smoothedRoll = smoothedRoll * (1.0 - rotAlpha) + rollVal * rotAlpha
-        smoothedYaw = smoothedYaw * (1.0 - rotAlpha) + yawVal * rotAlpha
-        smoothedPitch = smoothedPitch * (1.0 - rotAlpha) + pitchVal * rotAlpha
-        
-        // Convert to quaternion for neck orientation
-        let qRoll = simd_quaternion(smoothedRoll * 0.75, simd_float3(0, 0, 1))
-        let qYaw = simd_quaternion(-smoothedYaw * 0.75, simd_float3(0, 1, 0))
-        let qPitch = simd_quaternion(smoothedPitch * 0.65, simd_float3(1, 0, 0))
-        let neckOrientation = qYaw * qPitch * qRoll
-        
-        // Build pose and apply directly to avatar
-        if let pose = AvatarKitBridge.shared.buildAvatarPose(weights: smoothedWeights, neckOrientation: neckOrientation) {
+
+        if let pose = AvatarKitBridge.shared.buildAvatarPose(weights: finalWeights,
+                                                              neckOrientation: currentNeckQuat) {
             AvatarKitBridge.shared.applyPose(pose, on: view)
         }
     }
-    
-    nonisolated private static func clamp(_ value: Double, min: Double, max: Double) -> Double {
-        return Swift.min(Swift.max(value, min), max)
+
+
+    // MARK: - Vision Pipeline
+
+    nonisolated private func processSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let count = OSAtomicIncrement32(&_frameCounterAtomic)
+
+        // Cheap face-rectangle request → fresh head pose every camera frame (~30fps).
+        let poseReq = VNDetectFaceRectanglesRequest { [weak self] req, _ in
+            guard let self,
+                  let face = (req.results as? [VNFaceObservation])?.first else {
+                Task { @MainActor in self?.isFaceDetected = false }
+                return
+            }
+            let roll  = face.roll?.floatValue  ?? 0
+            let yaw   = face.yaw?.floatValue   ?? 0
+            let pitch = face.pitch?.floatValue ?? 0
+            // Raw quaternion from Vision euler angles — SLERP in stepSlerp() smooths it at 60fps.
+            let qR = simd_quaternion( roll  * 0.75, simd_float3(0, 0, 1))
+            let qY = simd_quaternion(-yaw   * 0.75, simd_float3(0, 1, 0))
+            let qP = simd_quaternion( pitch * 0.65, simd_float3(1, 0, 0))
+            let raw = qY * qP * qR
+            Task { @MainActor in self.targetNeckQuat = raw; self.isFaceDetected = true }
+        }
+
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
+
+        // Expensive landmark request every 2nd frame (~15fps) for blend shapes.
+        if count % landmarkFrameInterval == 0 {
+            let lmReq = VNDetectFaceLandmarksRequest { [weak self] req, _ in
+                guard let self,
+                      let face = (req.results as? [VNFaceObservation])?.first,
+                      let lm = face.landmarks else { return }
+                let w = Self.extractWeights(landmarks: lm)
+                Task { @MainActor in self.applyBlendShapes(targetWeights: w) }
+            }
+            try? handler.perform([poseReq, lmReq])
+        } else {
+            try? handler.perform([poseReq])
+        }
+    }
+
+    // MARK: - Blend Shape Smoothing
+
+    /// Adaptive EMA using real AvatarKit key names (underscore format, matching sticker weights).
+    /// Live tracking runs continuously — emote blending happens in stepSlerp, not here.
+    private func applyBlendShapes(targetWeights: [String: Double]) {
+        let keys = [
+            "eyeBlink_L", "eyeBlink_R",
+            "jawOpen",
+            "mouthSmile_L", "mouthSmile_R",
+            "mouthFrown_L", "mouthFrown_R",
+            "browInnerUp", "browDown_L", "browDown_R",
+            "eyeSquint_L", "eyeSquint_R"
+        ]
+        let baseAlpha = 0.75, fastAlpha = 0.92, threshold = 0.12
+        for key in keys {
+            let target  = targetWeights[key] ?? 0.0
+            let current = smoothedWeights[key] ?? 0.0
+            let alpha   = abs(target - current) > threshold ? fastAlpha : baseAlpha
+            smoothedWeights[key] = current + alpha * (target - current)
+        }
+    }
+
+    // MARK: - Landmark Extraction (AvatarKit underscore key names)
+
+    nonisolated private static func extractWeights(landmarks: VNFaceLandmarks2D) -> [String: Double] {
+        var w: [String: Double] = [:]
+
+        func eyeAspectRatio(_ region: VNFaceLandmarkRegion2D?) -> Double? {
+            guard let r = region, r.pointCount >= 6 else { return nil }
+            let pts = r.normalizedPoints
+            let h = Double((pts.map { $0.y }.max() ?? 0) - (pts.map { $0.y }.min() ?? 0))
+            let wd = Double((pts.map { $0.x }.max() ?? 0) - (pts.map { $0.x }.min() ?? 0))
+            return clamp((0.21 - h / max(wd, 0.001)) / (0.21 - 0.11), min: 0, max: 1)
+        }
+        w["eyeBlink_L"] = eyeAspectRatio(landmarks.leftEye)
+        w["eyeBlink_R"] = eyeAspectRatio(landmarks.rightEye)
+
+        if let lips = landmarks.innerLips ?? landmarks.outerLips, lips.pointCount >= 4 {
+            let pts = lips.normalizedPoints
+            let h  = Double((pts.map { $0.y }.max() ?? 0) - (pts.map { $0.y }.min() ?? 0))
+            let wd = Double((pts.map { $0.x }.max() ?? 0) - (pts.map { $0.x }.min() ?? 0))
+            w["jawOpen"] = clamp((h / max(wd, 0.001) - 0.06) / 0.32, min: 0, max: 1)
+        }
+
+        if let lips = landmarks.outerLips, lips.pointCount >= 6 {
+            let pts  = lips.normalizedPoints
+            let avgY = pts.map { $0.y }.reduce(0, +) / CGFloat(pts.count)
+            let lL = Double((pts.min { $0.x < $1.x }?.y ?? 0) - avgY)
+            let lR = Double((pts.max { $0.x < $1.x }?.y ?? 0) - avgY)
+            let smL = clamp((lL + 0.015) / 0.035, min: 0, max: 1)
+            let smR = clamp((lR + 0.015) / 0.035, min: 0, max: 1)
+            w["mouthSmile_L"] = smL; w["mouthSmile_R"] = smR
+            if smL < 0.1 && smR < 0.1 {
+                w["mouthFrown_L"] = clamp((-lL - 0.01) / 0.03, min: 0, max: 1)
+                w["mouthFrown_R"] = clamp((-lR - 0.01) / 0.03, min: 0, max: 1)
+            }
+        }
+
+        if let brow = landmarks.leftEyebrow, let eye = landmarks.leftEye {
+            let bY = brow.normalizedPoints.map { $0.y }.reduce(0, +) / CGFloat(max(brow.pointCount, 1))
+            let eY = eye.normalizedPoints.map  { $0.y }.reduce(0, +) / CGFloat(max(eye.pointCount,  1))
+            let dist = Double(bY - eY)
+            let up   = clamp((dist - 0.04) / 0.03, min: 0, max: 1)
+            w["browInnerUp"] = up
+            if up < 0.1 { let dn = clamp((0.032 - dist) / 0.02, min: 0, max: 1); w["browDown_L"] = dn; w["browDown_R"] = dn }
+        }
+        return w
+    }
+
+    nonisolated private static func clamp(_ v: Double, min lo: Double, max hi: Double) -> Double {
+        Swift.min(Swift.max(v, lo), hi)
     }
 }
 
-/// Helper delegate for AVCaptureVideoDataOutput
+// MARK: - Helpers
+
+private extension simd_quatf {
+    /// Neutral head orientation (no rotation).
+    static let faceIdentity = simd_quaternion(Float(0), simd_float3(0, 1, 0))
+}
+
+// MARK: - AVCapture delegate
+
 private final class FaceTrackingSampleBufferDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     private let onFrame: @Sendable (CMSampleBuffer) -> Void
-    
-    init(onFrame: @escaping @Sendable (CMSampleBuffer) -> Void) {
-        self.onFrame = onFrame
-        super.init()
-    }
-    
+    init(onFrame: @escaping @Sendable (CMSampleBuffer) -> Void) { self.onFrame = onFrame; super.init() }
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         onFrame(sampleBuffer)
     }
 }
 
-/// NSView container for CALayer-based video preview with automatic layout resizing
+// MARK: - Camera Preview Views
+
+/// NSView container that hosts a `AVCaptureVideoPreviewLayer` and auto-resizes it.
 private final class CameraPreviewContainerView: NSView {
     var previewLayer: AVCaptureVideoPreviewLayer? {
         didSet {
             guard oldValue !== previewLayer else { return }
             oldValue?.removeFromSuperlayer()
-            if let layer = previewLayer {
-                layer.frame = bounds
-                self.layer?.addSublayer(layer)
-            }
+            if let l = previewLayer { l.frame = bounds; self.layer?.addSublayer(l) }
         }
     }
-    
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
-    }
-    
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
-    }
-    
+    override init(frame: NSRect) { super.init(frame: frame); wantsLayer = true; layer?.backgroundColor = NSColor.black.cgColor }
+    required init?(coder: NSCoder) { super.init(coder: coder); wantsLayer = true; layer?.backgroundColor = NSColor.black.cgColor }
     override func layout() {
         super.layout()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        previewLayer?.frame = bounds
-        CATransaction.commit()
+        CATransaction.begin(); CATransaction.setDisableActions(true); previewLayer?.frame = bounds; CATransaction.commit()
     }
 }
 
-/// Compact live camera preview overlay for picture-in-picture feedback
+/// Compact live camera preview overlay for picture-in-picture feedback.
 @MainActor
 public struct CameraPreviewView: NSViewRepresentable {
     public let previewLayer: AVCaptureVideoPreviewLayer?
-    
-    public init(previewLayer: AVCaptureVideoPreviewLayer?) {
-        self.previewLayer = previewLayer
-    }
-    
+    public init(previewLayer: AVCaptureVideoPreviewLayer?) { self.previewLayer = previewLayer }
+
     public func makeNSView(context: Context) -> NSView {
-        let view = CameraPreviewContainerView(frame: .zero)
-        view.previewLayer = previewLayer
-        return view
+        let v = CameraPreviewContainerView(frame: .zero); v.previewLayer = previewLayer; return v
     }
-    
     public func updateNSView(_ nsView: NSView, context: Context) {
-        if let container = nsView as? CameraPreviewContainerView {
-            container.previewLayer = previewLayer
-        }
+        (nsView as? CameraPreviewContainerView)?.previewLayer = previewLayer
     }
 }
