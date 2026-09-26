@@ -393,19 +393,6 @@ public final class AvatarKitBridge {
         typealias TransFunc = @convention(c) (AnyObject, Selector, AnyObject?, Double, (@convention(block) () -> Void)?) -> Void
         let callable = unsafeBitCast(method_getImplementation(method), to: TransFunc.self)
         callable(view, transSel, nil, duration, { [weak self] in
-            let povSel = NSSelectorFromString("pointOfView")
-            if let pov = (view as AnyObject).perform(povSel)?.takeUnretainedValue() {
-                typealias VecFunc = @convention(c) (AnyObject, Selector, SIMD3<Float>) -> Void
-                typealias RotFunc = @convention(c) (AnyObject, Selector, SIMD4<Float>) -> Void
-                let mSetPos = class_getInstanceMethod(type(of: pov), NSSelectorFromString("setPosition:"))
-                if let m = mSetPos {
-                    unsafeBitCast(method_getImplementation(m), to: VecFunc.self)(pov, NSSelectorFromString("setPosition:"), SIMD3<Float>(0, 15, 59.59))
-                }
-                let mSetRot = class_getInstanceMethod(type(of: pov), NSSelectorFromString("setRotation:"))
-                if let m = mSetRot {
-                    unsafeBitCast(method_getImplementation(m), to: RotFunc.self)(pov, NSSelectorFromString("setRotation:"), SIMD4<Float>(-1.0, 0.0, 0.0, 0.06951647))
-                }
-            }
             self?.stabilizeCameraController(on: view)
         })
     }

@@ -120,6 +120,7 @@ public struct AvatarDetailView: View {
                 .padding(.bottom, 130)
             } else {
                 Avatar3DStageRepresentable(
+                    avatarId: avatarItem.id,
                     avatar: avatarObject,
                     activePoseName: activePoseName,
                     isAnimoji: isAnimoji,

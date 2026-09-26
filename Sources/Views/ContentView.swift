@@ -57,12 +57,36 @@ public struct ContentView: View {
                 if let id = newId {
                     AvatarKitBridge.shared.cancelPendingStickerRenders()
                     ensureAvatarLoaded(forId: id)
+                    if currentTab == .character {
+                        activePoseName = nil
+                    }
                     selectedAvatarId = id
                 } else {
                     selectedAvatarId = nil
                 }
             }
         )
+    }
+    
+    private func currentAvatarObject(for item: AvatarItem) -> AnyObject? {
+        if let obj = avatarObjects[item.id] {
+            return obj
+        }
+        if let obj = Self.loadAvatarObject(for: item) {
+            avatarObjects[item.id] = obj
+            return obj
+        }
+        return nil
+    }
+    
+    private func stickersForCurrentAvatar() -> [StickerItem] {
+        guard let item = selectedAvatarItem else { return [] }
+        if let cached = avatarStickers[item.id] {
+            return cached
+        }
+        let items = Self.loadStickerItems(for: item)
+        avatarStickers[item.id] = items
+        return items
     }
     
     public var body: some View {
@@ -78,7 +102,7 @@ public struct ContentView: View {
                 builtinAnimojis: builtinAnimojis,
                 randomMemojis: randomMemojis,
                 avatarObjects: avatarObjects,
-                stickersForSelectedAvatar: selectedAvatarId != nil ? (avatarStickers[selectedAvatarId!] ?? []) : [],
+                stickersForSelectedAvatar: stickersForCurrentAvatar(),
                 onAddNewMemoji: startCreatingNewMemoji,
                 onEditMemoji: startEditingMemoji,
                 onDuplicateMemoji: duplicateMemoji,
@@ -109,7 +133,7 @@ public struct ContentView: View {
                 } else if let current = selectedAvatarItem {
                     AvatarDetailView(
                         avatarItem: current,
-                        avatarObject: avatarObjects[current.id],
+                        avatarObject: currentAvatarObject(for: current),
                         activePoseName: activePoseName,
                         onResetPoseAndCamera: {
                             activePoseName = nil
@@ -185,8 +209,9 @@ public struct ContentView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(minWidth: 880, minHeight: 560)
         .sheet(isPresented: $isShowingEditor) {
             if let avatar = editorTargetAvatar {
                 MemojiEditorView(
@@ -247,16 +272,6 @@ public struct ContentView: View {
         }
         
         isLoading = false
-        
-        // Background pre-warm all remaining characters and their sticker lists
-        let allItems = customs + dbUsers + self.builtinAnimojis
-        Task(priority: .utility) {
-            for item in allItems where item.id != firstId {
-                if Task.isCancelled { break }
-                ensureAvatarLoaded(forId: item.id)
-                await Task.yield()
-            }
-        }
     }
     
     @MainActor

@@ -194,6 +194,7 @@ public struct SidebarView: View {
                             .fill(currentTab == .character ? Color(nsColor: .controlBackgroundColor) : Color.clear)
                             .shadow(color: currentTab == .character ? Color.black.opacity(0.06) : Color.clear, radius: 4, y: 1.5)
                     )
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 
@@ -216,6 +217,7 @@ public struct SidebarView: View {
                             .fill(currentTab == .emote ? Color(nsColor: .controlBackgroundColor) : Color.clear)
                             .shadow(color: currentTab == .emote ? Color.black.opacity(0.06) : Color.clear, radius: 4, y: 1.5)
                     )
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
@@ -525,6 +527,7 @@ public struct SidebarView: View {
                     
                     Grid2x2Icon(isSelected: viewMode == .grid)
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Grid View (2 columns)")
@@ -542,6 +545,7 @@ public struct SidebarView: View {
                     
                     List2RowIcon(isSelected: viewMode == .list)
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("List View")

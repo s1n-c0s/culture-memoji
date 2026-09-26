@@ -35,6 +35,7 @@ public final class StageViewController: ObservableObject {
 
 /// Wraps Apple's AVTView (3D interactive SceneKit/VFX viewport) for SwiftUI.
 public struct Avatar3DStageRepresentable: NSViewRepresentable {
+    public let avatarId: String?
     public let avatar: AnyObject?
     public let activePoseName: String?
     public let isAnimoji: Bool
@@ -44,6 +45,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     public let stageController: StageViewController?
     
     public init(
+        avatarId: String? = nil,
         avatar: AnyObject?,
         activePoseName: String? = nil,
         isAnimoji: Bool = false,
@@ -52,6 +54,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         mutationId: UUID? = nil,
         stageController: StageViewController? = nil
     ) {
+        self.avatarId = avatarId
         self.avatar = avatar
         self.activePoseName = activePoseName
         self.isAnimoji = isAnimoji
@@ -89,6 +92,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         context.coordinator.stageController = stageController
         context.coordinator.avtView = avtView
         context.coordinator.currentAvatar = avatar
+        context.coordinator.currentAvatarId = avatarId
         context.coordinator.currentPose = activePoseName
         context.coordinator.lastMutationId = mutationId
         
@@ -120,21 +124,21 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
             avtView.frame = nsView.bounds
         }
         
-        // Update avatar only when the actual object reference changes
-        if context.coordinator.currentAvatar !== avatar {
+        // Update avatar when avatarId or avatar instance changes
+        let avatarChanged = context.coordinator.currentAvatarId != avatarId || context.coordinator.currentAvatar !== avatar
+        if avatarChanged {
+            context.coordinator.currentAvatarId = avatarId
             context.coordinator.currentAvatar = avatar
             context.coordinator.currentPose = activePoseName
             
-            // 1. Purge any lingering sticker props / camera offsets from previous avatar
-            AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.0)
-            
-            // 2. Set the newly selected avatar instance
+            // Set the newly selected avatar instance (cleans previous puppet and restores default framing)
             AvatarKitBridge.shared.setAvatar(avatar, on: avtView, clone: clone)
             
-            // 3. Immediately apply the current active emote to the new character
+            // If there is an active emote, apply it cleanly to the new character
             if let pose = activePoseName {
+                let targetId = avatarId
                 DispatchQueue.main.async {
-                    guard context.coordinator.currentAvatar === avatar else { return }
+                    guard context.coordinator.currentAvatarId == targetId else { return }
                     AvatarKitBridge.shared.applyStickerPose(
                         named: pose,
                         to: avtView,
@@ -143,7 +147,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
                     )
                 }
             } else {
-                AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.0)
+                AvatarKitBridge.shared.stabilizeCameraController(on: avtView)
             }
         } else if context.coordinator.currentPose != activePoseName {
             // Update pose when changed (including nil = clear back to neutral)
@@ -168,6 +172,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
             AvatarKitBridge.shared.setAvatar(nil, on: avtView)
             coordinator.avtView = nil
             coordinator.currentAvatar = nil
+            coordinator.currentAvatarId = nil
         }
     }
     
@@ -175,6 +180,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         weak var stageController: StageViewController?
         var avtView: NSView?
         var currentAvatar: AnyObject?
+        var currentAvatarId: String?
         var currentPose: String?
         var lastMutationId: UUID?
     }
