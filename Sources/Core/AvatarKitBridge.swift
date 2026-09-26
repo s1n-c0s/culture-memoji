@@ -157,10 +157,10 @@ public final class AvatarKitBridge {
             _ = (view as AnyObject).perform(ctrlSel, with: true as NSNumber)
         }
         
-        // Set background to pure white matching the design stage
+        // Set background to clear so it blends seamlessly with the stage
         let bgSel = NSSelectorFromString("setBackgroundColor:")
         if view.responds(to: bgSel) {
-            _ = (view as AnyObject).perform(bgSel, with: NSColor.white)
+            _ = (view as AnyObject).perform(bgSel, with: NSColor.clear)
         }
         
         // Stabilize camera controller orbit target and up-vector

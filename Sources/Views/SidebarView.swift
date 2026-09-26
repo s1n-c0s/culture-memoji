@@ -67,7 +67,6 @@ public struct SidebarView: View {
     
     private var allCharacters: [AvatarItem] {
         var items = customMemojis + userMemojis + randomMemojis + builtinAnimojis
-        // Sort: favorites first, then preserve ordering
         items.sort { a, b in
             let aFav = favorites.isCharacterFavorite(a.id)
             let bFav = favorites.isCharacterFavorite(b.id)
@@ -99,7 +98,6 @@ public struct SidebarView: View {
                 $0.emoji.contains(q)
             }
         }
-        // Favorites first
         list.sort { a, b in
             let aFav = favorites.isEmoteFavorite(a.name)
             let bFav = favorites.isEmoteFavorite(b.name)
@@ -133,21 +131,21 @@ public struct SidebarView: View {
         VStack(spacing: 0) {
             // Top Section (Tabs, Action Bar, Search)
             sidebarHeader
-                .padding(.horizontal, 20)
-                .padding(.top, 44)
+                .padding(.horizontal, 18)
+                .padding(.top, 46)
                 .padding(.bottom, 12)
             
             // Content Area (Characters or Emotes Grid/List)
             ScrollView {
                 if currentTab == .character {
                     characterContent
-                        .padding(.horizontal, 20)
-                        .padding(.top, 6)
+                        .padding(.horizontal, 18)
+                        .padding(.top, 4)
                         .padding(.bottom, 24)
                 } else {
                     emoteContent
-                        .padding(.horizontal, 20)
-                        .padding(.top, 6)
+                        .padding(.horizontal, 18)
+                        .padding(.top, 4)
                         .padding(.bottom, 24)
                 }
             }
@@ -156,50 +154,80 @@ public struct SidebarView: View {
             // Bottom Section (Centered 2x2 Grid and 2-Row List View Mode Switcher)
             sidebarFooter
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .padding(.vertical, 12)
+                .background(
+                    AppTheme.sidebarBackground
+                        .overlay(
+                            Rectangle()
+                                .fill(Color.primary.opacity(0.05))
+                                .frame(height: 1),
+                            alignment: .top
+                        )
+                )
         }
         .background(AppTheme.sidebarBackground)
-        .frame(minWidth: 260, idealWidth: 320, maxWidth: 380)
+        .frame(minWidth: 280, idealWidth: 330, maxWidth: 380)
     }
     
     // MARK: - Header (Tabs + Subheader Action Row + Search)
     
     private var sidebarHeader: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // Row 1: Character / Emote tabs
-            HStack(spacing: 24) {
+            // Row 1: Segmented Pill Tab Bar (Character & Emote)
+            HStack(spacing: 4) {
                 // Character tab button
                 Button(action: {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
                         currentTab = .character
                     }
                 }) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 7) {
                         Image(systemName: "person.crop.circle.fill")
-                            .font(.system(size: 19))
-                            .foregroundColor(currentTab == .character ? .black : Color.black.opacity(0.45))
+                            .font(.system(size: 14, weight: .semibold))
                         
                         Text("Character")
-                            .font(.system(size: 18, weight: currentTab == .character ? .bold : .regular))
-                            .foregroundColor(currentTab == .character ? .black : Color.black.opacity(0.45))
+                            .font(.system(size: 13.5, weight: currentTab == .character ? .semibold : .medium))
                     }
+                    .foregroundColor(currentTab == .character ? .primary : .secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(currentTab == .character ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+                            .shadow(color: currentTab == .character ? Color.black.opacity(0.06) : Color.clear, radius: 4, y: 1.5)
+                    )
                 }
                 .buttonStyle(.plain)
                 
                 // Emote tab button
                 Button(action: {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
                         currentTab = .emote
                     }
                 }) {
-                    Text("Emote")
-                        .font(.system(size: 18, weight: currentTab == .emote ? .bold : .regular))
-                        .foregroundColor(currentTab == .emote ? .black : Color.black.opacity(0.45))
+                    HStack(spacing: 7) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 13, weight: .semibold))
+                        
+                        Text("Emote")
+                            .font(.system(size: 13.5, weight: currentTab == .emote ? .semibold : .medium))
+                    }
+                    .foregroundColor(currentTab == .emote ? .primary : .secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(currentTab == .emote ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+                            .shadow(color: currentTab == .emote ? Color.black.opacity(0.06) : Color.clear, radius: 4, y: 1.5)
+                    )
                 }
                 .buttonStyle(.plain)
-                
-                Spacer()
             }
+            .padding(3)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.primary.opacity(0.06))
+            )
             
             // Row 2: Subheader (+ New Character / Filter and Search icon)
             HStack {
@@ -208,13 +236,24 @@ public struct SidebarView: View {
                     Button(action: onAddNewMemoji) {
                         HStack(spacing: 6) {
                             Image(systemName: "plus")
-                                .font(.system(size: 17, weight: .medium))
+                                .font(.system(size: 13, weight: .bold))
                             Text("New Character")
-                                .font(.system(size: 16, weight: .regular))
+                                .font(.system(size: 13.5, weight: .medium))
                         }
-                        .foregroundColor(.black)
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.primary.opacity(0.05))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        )
                     }
                     .buttonStyle(.plain)
+                    .help("Create a new 3D Memoji (⌘N)")
                 } else {
                     // Emote category filter menu
                     Menu {
@@ -231,13 +270,24 @@ public struct SidebarView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: selectedEmoteCategory.iconName)
-                                .font(.system(size: 14))
+                                .font(.system(size: 12))
                             Text(selectedEmoteCategory == .all ? "All Emotes" : selectedEmoteCategory.rawValue)
-                                .font(.system(size: 16, weight: .regular))
+                                .font(.system(size: 13.5, weight: .medium))
                             Image(systemName: "chevron.down")
-                                .font(.system(size: 10))
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(.secondary)
                         }
-                        .foregroundColor(.black)
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.primary.opacity(0.05))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        )
                     }
                     .menuStyle(.borderlessButton)
                 }
@@ -253,40 +303,51 @@ public struct SidebarView: View {
                         }
                     }
                 }) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(isSearchActive || !searchText.isEmpty ? .black : Color.black.opacity(0.7))
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
+                    ZStack {
+                        Circle()
+                            .fill(isSearchActive || !searchText.isEmpty ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05))
+                            .frame(width: 30, height: 30)
+                        
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(isSearchActive || !searchText.isEmpty ? Color.accentColor : Color.primary.opacity(0.7))
+                    }
                 }
                 .buttonStyle(.plain)
+                .help("Search (⌘F)")
             }
             
             // Row 3: Collapsible Search TextField
             if isSearchActive || !searchText.isEmpty {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 13))
-                        .foregroundColor(Color.black.opacity(0.5))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
                     
-                    TextField(currentTab == .character ? "Search characters..." : "Search emotes...", text: $searchText)
+                    TextField(currentTab == .character ? "Filter characters..." : "Filter emotes...", text: $searchText)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .foregroundColor(.black)
+                        .font(.system(size: 12.5))
+                        .foregroundColor(.primary)
                     
                     if !searchText.isEmpty {
                         Button(action: { searchText = "" }) {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 13))
-                                .foregroundColor(Color.black.opacity(0.5))
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(Color.white.opacity(0.75))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                )
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
@@ -299,16 +360,18 @@ public struct SidebarView: View {
             if filteredCharacters.isEmpty {
                 VStack(spacing: 12) {
                     Spacer(minLength: 40)
+                    Image(systemName: "person.slash")
+                        .font(.system(size: 32))
+                        .foregroundColor(.secondary.opacity(0.6))
                     Text("No characters found")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(AppTheme.secondaryText)
+                        .foregroundColor(.secondary)
                     if !searchText.isEmpty {
                         Button("Clear Search") {
                             searchText = ""
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.bordered)
                         .font(.system(size: 12))
-                        .foregroundColor(.black)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -372,16 +435,18 @@ public struct SidebarView: View {
             if filteredEmotes.isEmpty {
                 VStack(spacing: 12) {
                     Spacer(minLength: 40)
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 32))
+                        .foregroundColor(.secondary.opacity(0.6))
                     Text("No emotes found")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(AppTheme.secondaryText)
+                        .foregroundColor(.secondary)
                     if !searchText.isEmpty {
                         Button("Clear Search") {
                             searchText = ""
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.bordered)
                         .font(.system(size: 12))
-                        .foregroundColor(.black)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -444,28 +509,45 @@ public struct SidebarView: View {
     // MARK: - Footer (Grid & List View Mode Switcher)
     
     private var sidebarFooter: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: 6) {
             // 2x2 Grid View Mode Button
             Button(action: {
-                withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
                     viewMode = .grid
                 }
             }) {
-                Grid2x2Icon(isSelected: viewMode == .grid)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(viewMode == .grid ? Color.primary.opacity(0.1) : Color.clear)
+                        .frame(width: 32, height: 26)
+                    
+                    Grid2x2Icon(isSelected: viewMode == .grid)
+                }
             }
             .buttonStyle(.plain)
             .help("Grid View (2 columns)")
             
             // 2-Row List View Mode Button
             Button(action: {
-                withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
                     viewMode = .list
                 }
             }) {
-                List2RowIcon(isSelected: viewMode == .list)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(viewMode == .list ? Color.primary.opacity(0.1) : Color.clear)
+                        .frame(width: 32, height: 26)
+                    
+                    List2RowIcon(isSelected: viewMode == .list)
+                }
             }
             .buttonStyle(.plain)
             .help("List View")
         }
+        .padding(3)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.primary.opacity(0.04))
+        )
     }
 }

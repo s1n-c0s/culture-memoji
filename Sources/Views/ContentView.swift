@@ -76,18 +76,18 @@ public struct ContentView: View {
             
             // Subtle vertical divider between sidebar and main area
             Rectangle()
-                .fill(Color.black.opacity(0.08))
+                .fill(Color.primary.opacity(0.08))
                 .frame(width: 1)
             
             // Right Main Stage
             ZStack {
                 if isLoading {
-                    VStack(spacing: 12) {
+                    VStack(spacing: 14) {
                         ProgressView()
                             .scaleEffect(0.85)
                         Text("Loading Apple Memojis...")
-                            .font(.system(size: 13))
-                            .foregroundColor(AppTheme.secondaryText)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.secondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(AppTheme.stageBackground)
@@ -111,23 +111,33 @@ public struct ContentView: View {
                     )
                     .id(current.id)
                 } else {
-                    VStack(spacing: 14) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 36))
-                            .foregroundColor(.black)
+                    VStack(spacing: 16) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.accentColor.opacity(0.1))
+                                .frame(width: 72, height: 72)
+                            
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 30))
+                                .foregroundColor(.accentColor)
+                        }
                         
                         Text("No Memoji Selected")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.black)
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .foregroundColor(.primary)
                         
                         Button(action: startCreatingNewMemoji) {
-                            Text("+ New Character")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(Color.black)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                            HStack(spacing: 6) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 13, weight: .bold))
+                                Text("New Character")
+                                    .font(.system(size: 14, weight: .medium))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.accentColor)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
                     }
@@ -142,16 +152,20 @@ public struct ContentView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
-                                .font(.system(size: 13))
+                                .font(.system(size: 14))
                             Text(toast)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.black)
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundColor(.primary)
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 9)
                         .background(.ultraThickMaterial)
                         .clipShape(Capsule())
-                        .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 3)
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 4)
                         .padding(.bottom, 24)
                     }
                     .transition(.move(edge: .bottom).combined(with: .opacity))

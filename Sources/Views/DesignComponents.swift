@@ -2,21 +2,57 @@ import SwiftUI
 import AppKit
 
 public struct AppTheme {
-    public static let sidebarBackground = Color(red: 217/255, green: 217/255, blue: 217/255)
-    public static let cardBackground = Color(red: 161/255, green: 161/255, blue: 161/255)
-    public static let cardSelectedBorder = Color.black
-    public static let buttonBackground = Color(red: 217/255, green: 217/255, blue: 217/255)
-    public static let buttonHoverBackground = Color(red: 200/255, green: 200/255, blue: 200/255)
-    public static let stageBackground = Color.white
-    public static let primaryText = Color.black
-    public static let secondaryText = Color.black.opacity(0.65)
+    // Dynamic adaptive backgrounds
+    public static var sidebarBackground: Color {
+        Color(nsColor: .windowBackgroundColor)
+    }
+    
+    public static var sidebarHeaderBackground: Color {
+        Color(nsColor: .controlBackgroundColor).opacity(0.6)
+    }
+    
+    // Card styling
+    public static var cardBackground: Color {
+        Color(nsColor: .controlBackgroundColor)
+    }
+    
+    public static var cardBorder: Color {
+        Color.primary.opacity(0.08)
+    }
+    
+    public static var cardSelectedBorder: Color {
+        Color.accentColor
+    }
+    
+    // Button styling
+    public static var buttonBackground: Color {
+        Color(nsColor: .controlBackgroundColor)
+    }
+    
+    public static var buttonHoverBackground: Color {
+        Color(nsColor: .selectedControlColor).opacity(0.15)
+    }
+    
+    public static var stageBackground: Color {
+        Color(nsColor: .underPageBackgroundColor)
+    }
+    
+    public static var primaryText: Color {
+        Color.primary
+    }
+    
+    public static var secondaryText: Color {
+        Color.secondary
+    }
+    
+    public static let goldColor = Color(red: 1.0, green: 0.72, blue: 0.0)
 }
 
 /// Circular counter-clockwise arrow with center dot matching the design
 public struct ResetFramingIcon: View {
-    public var size: CGFloat = 26
+    public var size: CGFloat = 20
     
-    public init(size: CGFloat = 26) {
+    public init(size: CGFloat = 20) {
         self.size = size
     }
     
@@ -24,10 +60,10 @@ public struct ResetFramingIcon: View {
         ZStack {
             Image(systemName: "arrow.counterclockwise")
                 .font(.system(size: size, weight: .bold))
-                .foregroundColor(.black)
+                .foregroundColor(.primary)
             
             Circle()
-                .fill(Color.black)
+                .fill(Color.primary)
                 .frame(width: size * 0.22, height: size * 0.22)
         }
         .frame(width: size + 6, height: size + 6)
@@ -36,10 +72,10 @@ public struct ResetFramingIcon: View {
 
 /// Video camera with silhouette person cutout matching the design
 public struct LiveCameraIcon: View {
-    public var size: CGFloat = 28
+    public var size: CGFloat = 22
     public var isActive: Bool = false
     
-    public init(size: CGFloat = 28, isActive: Bool = false) {
+    public init(size: CGFloat = 22, isActive: Bool = false) {
         self.size = size
         self.isActive = isActive
     }
@@ -49,12 +85,12 @@ public struct LiveCameraIcon: View {
             // Camera body
             Image(systemName: "video.fill")
                 .font(.system(size: size))
-                .foregroundColor(isActive ? Color.accentColor : Color.black)
+                .foregroundColor(isActive ? Color.green : Color.primary)
             
             // Person bust cutout
             VStack(spacing: size * 0.04) {
                 Circle()
-                    .fill(Color.white)
+                    .fill(isActive ? Color.white : Color(nsColor: .windowBackgroundColor))
                     .frame(width: size * 0.22, height: size * 0.22)
                 
                 // Shoulders
@@ -68,7 +104,7 @@ public struct LiveCameraIcon: View {
                     )
                     path.closeSubpath()
                 }
-                .fill(Color.white)
+                .fill(isActive ? Color.white : Color(nsColor: .windowBackgroundColor))
                 .frame(width: size * 0.44, height: size * 0.22)
             }
             .offset(x: -size * 0.13)
@@ -87,8 +123,8 @@ public struct Grid2x2Icon: View {
     
     public var body: some View {
         Image(systemName: "square.grid.2x2")
-            .font(.system(size: 20, weight: isSelected ? .bold : .regular))
-            .foregroundColor(isSelected ? .black : Color.black.opacity(0.4))
+            .font(.system(size: 16, weight: isSelected ? .bold : .regular))
+            .foregroundColor(isSelected ? .primary : .secondary)
     }
 }
 
@@ -101,14 +137,14 @@ public struct List2RowIcon: View {
     }
     
     public var body: some View {
-        VStack(spacing: 3) {
-            RoundedRectangle(cornerRadius: 2)
-                .stroke(isSelected ? Color.black : Color.black.opacity(0.4), lineWidth: 2)
-                .frame(width: 20, height: 8)
-            RoundedRectangle(cornerRadius: 2)
-                .stroke(isSelected ? Color.black : Color.black.opacity(0.4), lineWidth: 2)
-                .frame(width: 20, height: 8)
+        VStack(spacing: 2.5) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .stroke(isSelected ? Color.primary : Color.secondary, lineWidth: 1.8)
+                .frame(width: 17, height: 6.5)
+            RoundedRectangle(cornerRadius: 1.5)
+                .stroke(isSelected ? Color.primary : Color.secondary, lineWidth: 1.8)
+                .frame(width: 17, height: 6.5)
         }
-        .frame(width: 24, height: 24)
+        .frame(width: 20, height: 20)
     }
 }
