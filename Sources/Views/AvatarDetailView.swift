@@ -56,6 +56,7 @@ public struct AvatarDetailView: View {
     @State private var isHoveringFullScreen: Bool = false
     @State private var resetSpinDegrees: Double = 0
     @State private var shareAnchorView: NSView? = nil
+    @State private var sharePickerDelegate: SharePickerDelegate? = nil
     
     public init(
         avatarItem: AvatarItem,
@@ -100,7 +101,7 @@ public struct AvatarDetailView: View {
             )
             .ignoresSafeArea()
             .onTapGesture(count: 2) {
-                handleReset()
+                handleDoubleTapResetAngle()
             }
             
             // Full-Area 3D Viewport (fills full available area of stage without clipping)
@@ -142,13 +143,21 @@ public struct AvatarDetailView: View {
                     clone: true,
                     mutationId: stageMutationId,
                     stageController: stageController,
-                    onDoubleTap: handleReset
+                    onDoubleTap: handleDoubleTapResetAngle
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.bottom, 130)
                 .contextMenu {
                     Button(action: copyAvatarToClipboard) {
                         Label("Copy Visual Transparent PNG", systemImage: "doc.on.doc")
+                    }
+                    
+                    Button(action: { downloadAvatarImage(showSavePanel: false) }) {
+                        Label("Download Image", systemImage: "arrow.down.circle")
+                    }
+                    
+                    Button(action: { downloadAvatarImage(showSavePanel: true) }) {
+                        Label("Save Image As...", systemImage: "square.and.arrow.down")
                     }
                     
                     Button(action: shareAvatar) {
@@ -231,6 +240,9 @@ public struct AvatarDetailView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .copyCurrentAvatarRequested)) { _ in
             copyAvatarToClipboard()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .saveImageRequested)) { _ in
+            downloadAvatarImage(showSavePanel: false)
         }
         .onReceive(NotificationCenter.default.publisher(for: .resetCameraAndPoseRequested)) { _ in
             handleReset()
@@ -438,7 +450,18 @@ public struct AvatarDetailView: View {
             .buttonStyle(.plain)
             .background(ShareAnchorRepresentable(anchorView: $shareAnchorView))
             .onHover { h in isHoveringShare = h }
-            .help("Share avatar (AirDrop, Messages, Mail)...")
+            .contextMenu {
+                Button(action: { downloadAvatarImage(showSavePanel: false) }) {
+                    Label("Download Image (Save to Downloads)", systemImage: "arrow.down.circle")
+                }
+                Button(action: { downloadAvatarImage(showSavePanel: true) }) {
+                    Label("Save Image As...", systemImage: "square.and.arrow.down")
+                }
+                Button(action: shareAvatar) {
+                    Label("Share via AirDrop, Messages...", systemImage: "square.and.arrow.up")
+                }
+            }
+            .help("Share or download avatar (AirDrop, Messages, Downloads)...")
         }
     }
     
@@ -465,7 +488,17 @@ public struct AvatarDetailView: View {
         onCopiedNotification?("Framing and pose reset")
     }
     
-    private func copyAvatarToClipboard() {
+    private func handleDoubleTapResetAngle() {
+        if let view = stageController.avtView {
+            AvatarKitBridge.shared.applyCanonicalCameraFraming(to: view, animated: true, duration: 0.25)
+        }
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.65)) {
+            resetSpinDegrees -= 360
+        }
+        onCopiedNotification?("Facing angle centered")
+    }
+    
+    private func getProcessedAvatarSnapshot() -> NSImage? {
         var image: NSImage? = stageController.captureSnapshot()
         
         if image == nil, let avatar = avatarObject {
@@ -477,9 +510,68 @@ public struct AvatarDetailView: View {
             )
         }
         
-        guard let rawImage = image else { return }
+        guard let rawImage = image else { return nil }
+        return StickerExportManager.shared.trimTransparentMargins(image: rawImage)
+    }
+    
+    private func downloadAvatarImage(showSavePanel: Bool = false) {
+        guard let image = getProcessedAvatarSnapshot(),
+              let data = StickerExportManager.shared.imageData(for: image, format: .png) else {
+            return
+        }
         
-        let finalImage = StickerExportManager.shared.trimTransparentMargins(image: rawImage)
+        let sanitizedName = avatarItem.displayName
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseFilename = sanitizedName.isEmpty ? "Memoji" : sanitizedName
+        
+        if showSavePanel {
+            let savePanel = NSSavePanel()
+            savePanel.allowedContentTypes = [.png]
+            savePanel.canCreateDirectories = true
+            savePanel.isExtensionHidden = false
+            savePanel.title = "Save Avatar Image"
+            savePanel.nameFieldStringValue = "\(baseFilename).png"
+            if let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+                savePanel.directoryURL = downloads
+            }
+            
+            savePanel.begin { response in
+                if response == .OK, let destURL = savePanel.url {
+                    do {
+                        try data.write(to: destURL)
+                        onCopiedNotification?("Saved \(destURL.lastPathComponent)")
+                    } catch {
+                        onCopiedNotification?("Failed to save image")
+                    }
+                }
+            }
+        } else {
+            // Direct download to ~/Downloads folder
+            guard let downloadsURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else {
+                return
+            }
+            
+            var destURL = downloadsURL.appendingPathComponent("\(baseFilename).png")
+            var counter = 1
+            while FileManager.default.fileExists(atPath: destURL.path) {
+                destURL = downloadsURL.appendingPathComponent("\(baseFilename) \(counter).png")
+                counter += 1
+            }
+            
+            do {
+                try data.write(to: destURL)
+                onCopiedNotification?("Downloaded \(destURL.lastPathComponent) to Downloads")
+            } catch {
+                onCopiedNotification?("Failed to download image")
+            }
+        }
+    }
+    
+    private func copyAvatarToClipboard() {
+        guard let finalImage = getProcessedAvatarSnapshot() else { return }
+        
         StickerExportManager.shared.copyToClipboard(image: finalImage)
         
         withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
@@ -496,22 +588,24 @@ public struct AvatarDetailView: View {
     }
     
     private func shareAvatar() {
-        var image: NSImage? = stageController.captureSnapshot()
-        if image == nil, let avatar = avatarObject {
-            image = AvatarKitBridge.shared.snapshot(
-                avatar: avatar,
-                poseName: activePoseName,
-                animojiNamed: isAnimoji ? animojiName : nil,
-                size: CGSize(width: 1024, height: 1024)
-            )
-        }
-        guard let rawImage = image else { return }
-        let snap = StickerExportManager.shared.trimTransparentMargins(image: rawImage)
+        guard let snap = getProcessedAvatarSnapshot() else { return }
         guard let tempURL = StickerExportManager.shared.createTemporaryFile(for: snap, filename: "\(avatarItem.displayName)_Snapshot") else {
             return
         }
         
+        let delegate = SharePickerDelegate(
+            onDownload: { @MainActor in
+                downloadAvatarImage(showSavePanel: false)
+            },
+            onSaveAs: { @MainActor in
+                downloadAvatarImage(showSavePanel: true)
+            }
+        )
+        self.sharePickerDelegate = delegate
+        
         let picker = NSSharingServicePicker(items: [tempURL])
+        picker.delegate = delegate
+        
         if let anchor = shareAnchorView, anchor.window != nil {
             picker.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
         } else if let window = NSApplication.shared.keyWindow, let contentView = window.contentView {
@@ -527,6 +621,52 @@ public struct AvatarDetailView: View {
             onRenameRequested?(trimmed)
         }
         isEditingNameInline = false
+    }
+}
+
+// MARK: - Share Picker Delegate (Adds "Download Image" to NSSharingServicePicker)
+@MainActor
+final class SharePickerDelegate: NSObject, NSSharingServicePickerDelegate {
+    let onDownload: @MainActor @Sendable () -> Void
+    let onSaveAs: @MainActor @Sendable () -> Void
+    
+    init(onDownload: @escaping @MainActor @Sendable () -> Void, onSaveAs: @escaping @MainActor @Sendable () -> Void) {
+        self.onDownload = onDownload
+        self.onSaveAs = onSaveAs
+    }
+    
+    nonisolated func sharingServicePicker(
+        _ sharingServicePicker: NSSharingServicePicker,
+        sharingServicesForItems items: [Any],
+        proposedSharingServices proposedServices: [NSSharingService]
+    ) -> [NSSharingService] {
+        var customServices: [NSSharingService] = []
+        let downloadAction = onDownload
+        let saveAsAction = onSaveAs
+        
+        let downloadService = NSSharingService(
+            title: "Download Image (Save to Downloads)",
+            image: NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil) ?? NSImage(),
+            alternateImage: nil
+        ) {
+            DispatchQueue.main.async {
+                downloadAction()
+            }
+        }
+        customServices.append(downloadService)
+        
+        let saveAsService = NSSharingService(
+            title: "Save Image As...",
+            image: NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil) ?? NSImage(),
+            alternateImage: nil
+        ) {
+            DispatchQueue.main.async {
+                saveAsAction()
+            }
+        }
+        customServices.append(saveAsService)
+        
+        return customServices + proposedServices
     }
 }
 

@@ -3,6 +3,7 @@ import AppKit
 
 public extension Notification.Name {
     static let copyCurrentAvatarRequested = Notification.Name("copyCurrentAvatarRequested")
+    static let saveImageRequested = Notification.Name("saveImageRequested")
     static let resetCameraAndPoseRequested = Notification.Name("resetCameraAndPoseRequested")
     static let toggleSidebarRequested = Notification.Name("toggleSidebarRequested")
     static let toggleFullScreenRequested = Notification.Name("toggleFullScreenRequested")
@@ -48,6 +49,13 @@ public struct CultureMemojiApp: App {
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
         .commands {
+            CommandGroup(replacing: .saveItem) {
+                Button("Save / Download Image...") {
+                    NotificationCenter.default.post(name: .saveImageRequested, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: .command)
+            }
+            
             CommandGroup(replacing: .pasteboard) {
                 Button("Copy Character / Emote") {
                     NotificationCenter.default.post(name: .copyCurrentAvatarRequested, object: nil)
