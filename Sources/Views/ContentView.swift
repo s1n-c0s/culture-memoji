@@ -546,6 +546,7 @@ public struct ContentView: View {
         }
         let copyName = "\(item.displayName) Copy"
         let newItem = AvatarDatabaseReader.shared.saveCustomMemoji(name: copyName, data: data)
+        CharacterOrderManager.shared.insertAtTop(id: newItem.id)
         customMemojis.insert(newItem, at: 0)
         if let cloned = AvatarKitBridge.shared.cloneAvatar(avatar) {
             avatarObjects[newItem.id] = cloned
@@ -635,6 +636,7 @@ public struct ContentView: View {
                 
             case .randomMemoji:
                 let newItem = AvatarDatabaseReader.shared.saveCustomMemoji(name: name, data: data)
+                CharacterOrderManager.shared.insertAtTop(id: newItem.id)
                 customMemojis.insert(newItem, at: 0)
                 avatarObjects[newItem.id] = savedAvatar
                 loadStickers(for: newItem)
@@ -646,6 +648,7 @@ public struct ContentView: View {
             }
         } else {
             let newItem = AvatarDatabaseReader.shared.saveCustomMemoji(name: name, data: data)
+            CharacterOrderManager.shared.insertAtTop(id: newItem.id)
             customMemojis.insert(newItem, at: 0)
             avatarObjects[newItem.id] = savedAvatar
             loadStickers(for: newItem)
@@ -666,6 +669,7 @@ public struct ContentView: View {
     @MainActor
     private func deleteCustomMemoji(item: AvatarItem) {
         _ = AvatarDatabaseReader.shared.deleteCustomMemoji(id: item.id)
+        CharacterOrderManager.shared.remove(id: item.id)
         customMemojis.removeAll { $0.id == item.id }
         avatarObjects.removeValue(forKey: item.id)
         avatarStickers.removeValue(forKey: item.id)

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 public struct SidebarView: View {
     @Binding public var selectedAvatarId: String?
@@ -24,12 +25,21 @@ public struct SidebarView: View {
     public let onToggleSidebar: (() -> Void)?
     
     @ObservedObject private var favorites = FavoritesManager.shared
+    @ObservedObject private var orderManager = CharacterOrderManager.shared
+    @State private var draggedAvatarItem: AvatarItem? = nil
     @State private var searchText: String = ""
     @State private var isSearchActive: Bool = false
     @State private var selectedEmoteCategory: StickerCategory = .all
     @State private var isSelectionMode: Bool = false
     @State private var selectedCharacterIds: Set<String> = []
     @State private var isShowingDeleteBatchAlert: Bool = false
+    
+    private let supportedDropTypes: [String] = [
+        UTType.utf8PlainText.identifier,
+        UTType.plainText.identifier,
+        UTType.text.identifier,
+        "NSStringPboardType"
+    ]
     
     public init(
         selectedAvatarId: Binding<String?>,
@@ -72,14 +82,8 @@ public struct SidebarView: View {
     }
     
     private var allCharacters: [AvatarItem] {
-        var items = customMemojis + userMemojis + randomMemojis + builtinAnimojis
-        items.sort { a, b in
-            let aFav = favorites.isCharacterFavorite(a.id)
-            let bFav = favorites.isCharacterFavorite(b.id)
-            if aFav != bFav { return aFav && !bFav }
-            return false
-        }
-        return items
+        let items = customMemojis + userMemojis + randomMemojis + builtinAnimojis
+        return orderManager.applyOrder(to: items, favorites: favorites)
     }
     
     private var filteredCharacters: [AvatarItem] {
@@ -156,6 +160,10 @@ public struct SidebarView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onDrop(of: supportedDropTypes, isTargeted: nil) { _ in
+                draggedAvatarItem = nil
+                return true
+            }
             
             // Bottom Section (Centered 2x2 Grid and 2-Row List View Mode Switcher)
             sidebarFooter
@@ -458,6 +466,19 @@ public struct SidebarView: View {
                     
                     Spacer()
                     
+                    // Batch Move to Top button
+                    Button(action: batchMoveToTop) {
+                        Image(systemName: "arrow.up.to.line")
+                            .font(.system(size: 12.5, weight: .bold))
+                            .foregroundColor(selectedCharacterIds.isEmpty ? .secondary.opacity(0.35) : .accentColor)
+                            .frame(width: 28, height: 28)
+                            .background(selectedCharacterIds.isEmpty ? Color.primary.opacity(0.04) : Color.accentColor.opacity(0.12))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(selectedCharacterIds.isEmpty)
+                    .help("Move Selected Characters to Top")
+                    
                     // Batch Favorite / Unfavorite button
                     Button(action: batchToggleFavorite) {
                         Image(systemName: allSelectedAreFavorites ? "star.slash.fill" : "star.fill")
@@ -544,6 +565,8 @@ public struct SidebarView: View {
                             isFavorite: favorites.isCharacterFavorite(item.id),
                             isSelectionMode: isSelectionMode,
                             isMarked: selectedCharacterIds.contains(item.id),
+                            isBeingDragged: draggedAvatarItem?.id == item.id,
+                            hasCustomOrder: orderManager.hasCustomOrder,
                             onSelect: {
                                 if isSelectionMode {
                                     toggleCharacterSelection(item.id)
@@ -581,7 +604,51 @@ public struct SidebarView: View {
                                     isSelectionMode = true
                                     selectedCharacterIds = [item.id]
                                 }
+                            },
+                            onMoveToTop: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    orderManager.moveToTop(id: item.id, currentItems: allCharacters)
+                                }
+                            },
+                            onMoveToBottom: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    orderManager.moveToBottom(id: item.id, currentItems: allCharacters)
+                                }
+                            },
+                            onMoveForward: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    orderManager.moveByOffset(id: item.id, offset: 1, currentItems: allCharacters)
+                                }
+                            },
+                            onMoveBackward: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    orderManager.moveByOffset(id: item.id, offset: -1, currentItems: allCharacters)
+                                }
+                            },
+                            onResetOrder: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    orderManager.resetOrder()
+                                }
                             }
+                        )
+                        .onDrag {
+                            self.draggedAvatarItem = item
+                            return NSItemProvider(object: item.id as NSString)
+                        }
+                        .onDrop(
+                            of: supportedDropTypes,
+                            delegate: CharacterDropDelegate(
+                                targetItem: item,
+                                draggedItem: $draggedAvatarItem,
+                                onMove: { source, target in
+                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                        orderManager.move(sourceId: source.id, targetId: target.id, currentItems: allCharacters)
+                                    }
+                                },
+                                onDropEnded: {
+                                    draggedAvatarItem = nil
+                                }
+                            )
                         )
                     }
                 }
@@ -595,6 +662,8 @@ public struct SidebarView: View {
                             isFavorite: favorites.isCharacterFavorite(item.id),
                             isSelectionMode: isSelectionMode,
                             isMarked: selectedCharacterIds.contains(item.id),
+                            isBeingDragged: draggedAvatarItem?.id == item.id,
+                            hasCustomOrder: orderManager.hasCustomOrder,
                             onSelect: {
                                 if isSelectionMode {
                                     toggleCharacterSelection(item.id)
@@ -623,7 +692,51 @@ public struct SidebarView: View {
                                     isSelectionMode = true
                                     selectedCharacterIds = [item.id]
                                 }
+                            },
+                            onMoveToTop: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    orderManager.moveToTop(id: item.id, currentItems: allCharacters)
+                                }
+                            },
+                            onMoveToBottom: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    orderManager.moveToBottom(id: item.id, currentItems: allCharacters)
+                                }
+                            },
+                            onMoveForward: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    orderManager.moveByOffset(id: item.id, offset: 1, currentItems: allCharacters)
+                                }
+                            },
+                            onMoveBackward: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    orderManager.moveByOffset(id: item.id, offset: -1, currentItems: allCharacters)
+                                }
+                            },
+                            onResetOrder: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    orderManager.resetOrder()
+                                }
                             }
+                        )
+                        .onDrag {
+                            self.draggedAvatarItem = item
+                            return NSItemProvider(object: item.id as NSString)
+                        }
+                        .onDrop(
+                            of: supportedDropTypes,
+                            delegate: CharacterDropDelegate(
+                                targetItem: item,
+                                draggedItem: $draggedAvatarItem,
+                                onMove: { source, target in
+                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                        orderManager.move(sourceId: source.id, targetId: target.id, currentItems: allCharacters)
+                                    }
+                                },
+                                onDropEnded: {
+                                    draggedAvatarItem = nil
+                                }
+                            )
                         )
                     }
                 }
@@ -640,6 +753,12 @@ public struct SidebarView: View {
     
     private var deletableSelectedItems: [AvatarItem] {
         filteredCharacters.filter { selectedCharacterIds.contains($0.id) && $0.isCustomMemoji }
+    }
+    
+    private func batchMoveToTop() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+            orderManager.moveSelectedToTop(ids: selectedCharacterIds, currentItems: allCharacters)
+        }
     }
     
     private func toggleCharacterSelection(_ id: String) {
@@ -821,3 +940,34 @@ public struct SidebarView: View {
         )
     }
 }
+
+// MARK: - Character Drop Delegate for Drag-to-Reorder
+struct CharacterDropDelegate: DropDelegate {
+    let targetItem: AvatarItem
+    @Binding var draggedItem: AvatarItem?
+    let onMove: (AvatarItem, AvatarItem) -> Void
+    let onDropEnded: () -> Void
+    
+    func dropEntered(info: DropInfo) {
+        guard let dragged = draggedItem, dragged.id != targetItem.id else { return }
+        onMove(dragged, targetItem)
+    }
+    
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        return DropProposal(operation: .move)
+    }
+    
+    func performDrop(info: DropInfo) -> Bool {
+        draggedItem = nil
+        onDropEnded()
+        return true
+    }
+    
+    func dropExited(info: DropInfo) {
+    }
+    
+    func validateDrop(info: DropInfo) -> Bool {
+        return draggedItem != nil
+    }
+}
+
