@@ -132,7 +132,7 @@ public struct SidebarView: View {
             // Top Section (Tabs, Action Bar, Search)
             sidebarHeader
                 .padding(.horizontal, 18)
-                .padding(.top, 46)
+                .padding(.top, 18)
                 .padding(.bottom, 12)
             
             // Content Area (Characters or Emotes Grid/List)

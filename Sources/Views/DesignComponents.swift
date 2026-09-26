@@ -50,9 +50,9 @@ public struct AppTheme {
 
 /// Circular counter-clockwise arrow with center dot matching the design
 public struct ResetFramingIcon: View {
-    public var size: CGFloat = 20
+    public var size: CGFloat = 16
     
-    public init(size: CGFloat = 20) {
+    public init(size: CGFloat = 16) {
         self.size = size
     }
     
@@ -60,55 +60,38 @@ public struct ResetFramingIcon: View {
         ZStack {
             Image(systemName: "arrow.counterclockwise")
                 .font(.system(size: size, weight: .bold))
-                .foregroundColor(.primary)
             
             Circle()
-                .fill(Color.primary)
                 .frame(width: size * 0.22, height: size * 0.22)
         }
+        .foregroundColor(.primary)
         .frame(width: size + 6, height: size + 6)
     }
 }
 
 /// Video camera with silhouette person cutout matching the design
 public struct LiveCameraIcon: View {
-    public var size: CGFloat = 22
+    public var size: CGFloat = 17
     public var isActive: Bool = false
     
-    public init(size: CGFloat = 22, isActive: Bool = false) {
+    public init(size: CGFloat = 17, isActive: Bool = false) {
         self.size = size
         self.isActive = isActive
     }
     
     public var body: some View {
         ZStack {
-            // Camera body
             Image(systemName: "video.fill")
                 .font(.system(size: size))
-                .foregroundColor(isActive ? Color.green : Color.primary)
             
-            // Person bust cutout
-            VStack(spacing: size * 0.04) {
-                Circle()
-                    .fill(isActive ? Color.white : Color(nsColor: .windowBackgroundColor))
-                    .frame(width: size * 0.22, height: size * 0.22)
-                
-                // Shoulders
-                Path { path in
-                    path.addArc(
-                        center: CGPoint(x: size * 0.22, y: size * 0.22),
-                        radius: size * 0.22,
-                        startAngle: .degrees(180),
-                        endAngle: .degrees(0),
-                        clockwise: false
-                    )
-                    path.closeSubpath()
-                }
-                .fill(isActive ? Color.white : Color(nsColor: .windowBackgroundColor))
-                .frame(width: size * 0.44, height: size * 0.22)
-            }
-            .offset(x: -size * 0.13)
+            // True alpha cutout of person silhouette
+            Image(systemName: "person.fill")
+                .font(.system(size: size * 0.44))
+                .offset(x: -size * 0.08)
+                .blendMode(.destinationOut)
         }
+        .compositingGroup()
+        .foregroundColor(isActive ? Color.green : Color.primary)
         .frame(width: size + 6, height: size + 6)
     }
 }

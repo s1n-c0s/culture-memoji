@@ -2,35 +2,29 @@ import SwiftUI
 import AppKit
 
 public enum StudioLightingTheme: String, CaseIterable, Identifiable {
-    case clean = "Clean Stage"
     case studio = "Ambient Studio"
-    case graphite = "Graphite Dark"
+    case clean = "Clean Stage"
+    case dark = "Graphite Dark"
     case velvet = "Keynote Velvet"
     
     public var id: String { rawValue }
     
-    public var colors: [Color] {
+    public func colors(for scheme: ColorScheme) -> [Color] {
         switch self {
-        case .clean:
-            return [
-                Color.white,
-                Color(white: 0.96)
-            ]
         case .studio:
-            return [
-                Color(nsColor: .controlBackgroundColor).opacity(0.5),
-                Color(nsColor: .windowBackgroundColor)
-            ]
-        case .graphite:
-            return [
-                Color(red: 0.18, green: 0.19, blue: 0.22),
-                Color(red: 0.10, green: 0.11, blue: 0.13)
-            ]
+            return scheme == .dark
+                ? [Color(red: 0.19, green: 0.20, blue: 0.25), Color(red: 0.10, green: 0.10, blue: 0.12)]
+                : [Color.white, Color(red: 0.93, green: 0.94, blue: 0.96)]
+        case .clean:
+            return scheme == .dark
+                ? [Color(white: 0.15), Color(white: 0.09)]
+                : [Color.white, Color(white: 0.95)]
+        case .dark:
+            return [Color(red: 0.14, green: 0.15, blue: 0.17), Color(red: 0.07, green: 0.07, blue: 0.08)]
         case .velvet:
-            return [
-                Color.purple.opacity(0.18),
-                Color(nsColor: .windowBackgroundColor)
-            ]
+            return scheme == .dark
+                ? [Color(red: 0.23, green: 0.13, blue: 0.27), Color(red: 0.09, green: 0.06, blue: 0.12)]
+                : [Color(red: 0.98, green: 0.94, blue: 0.99), Color(red: 0.91, green: 0.88, blue: 0.95)]
         }
     }
 }
@@ -44,6 +38,7 @@ public struct AvatarDetailView: View {
     public let onRenameRequested: ((String) -> Void)?
     public let onCopiedNotification: ((String) -> Void)?
     
+    @Environment(\.colorScheme) private var colorScheme
     @StateObject private var stageController = StageViewController()
     @State private var isLiveCameraActive: Bool = false
     @State private var showCopiedFeedback: Bool = false
@@ -51,7 +46,9 @@ public struct AvatarDetailView: View {
     @State private var isEditingNameInline: Bool = false
     @State private var editedName: String = ""
     @State private var stageMutationId: UUID = UUID()
-    @State private var lightingTheme: StudioLightingTheme = .clean
+    @State private var lightingTheme: StudioLightingTheme = .studio
+    @State private var isHoveringCopy: Bool = false
+    @State private var isHoveringShare: Bool = false
     
     public init(
         avatarItem: AvatarItem,
@@ -83,33 +80,41 @@ public struct AvatarDetailView: View {
     
     public var body: some View {
         ZStack {
-            // Elegant Studio Ambient Backdrop
+            // Studio Ambient Backdrop adaptive to Dark & Light mode
             RadialGradient(
-                colors: lightingTheme.colors,
+                colors: lightingTheme.colors(for: colorScheme),
                 center: .center,
-                startRadius: 60,
-                endRadius: 520
+                startRadius: 50,
+                endRadius: 650
             )
             .ignoresSafeArea()
             
-            VStack(spacing: 0) {
-                // Top Right Action Bar
+            // Centered Stage Showcase
+            VStack(spacing: 12) {
+                Spacer()
+                
+                // Central Avatar Stage / Live Camera Viewport
+                centerAvatarArea
+                
+                // Character Name & Badge
+                nameSection
+                    .padding(.top, 4)
+                
+                // Copy & Share Action Buttons Row
+                actionButtonsRow
+                    .padding(.top, 10)
+                
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            
+            // Top Right Action Bar
+            VStack {
                 topRightBar
                     .padding(.top, 18)
                     .padding(.trailing, 22)
                 
-                // Central Avatar Stage / Live Camera Viewport (expands flexibly)
-                centerAvatarArea
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.vertical, 8)
-                
-                // Character Name & Badge
-                nameSection
-                    .padding(.bottom, 16)
-                
-                // Copy & Share Action Buttons Row
-                actionButtonsRow
-                    .padding(.bottom, 32)
+                Spacer()
             }
         }
     }
@@ -120,7 +125,7 @@ public struct AvatarDetailView: View {
         HStack {
             Spacer()
             
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 // Theme picker menu
                 Menu {
                     ForEach(StudioLightingTheme.allCases) { theme in
@@ -135,23 +140,23 @@ public struct AvatarDetailView: View {
                     }
                 } label: {
                     Image(systemName: "circle.lefthalf.filled")
-                        .font(.system(size: 13))
-                        .foregroundColor(.primary)
-                        .frame(width: 34, height: 34)
-                        .background(.ultraThinMaterial)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.primary.opacity(0.85))
+                        .frame(width: 32, height: 32)
+                        .background(Color.primary.opacity(0.06))
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.primary.opacity(0.1), lineWidth: 1))
+                        .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 1))
                 }
                 .menuStyle(.borderlessButton)
-                .help("Change studio lighting theme")
+                .help("Studio Lighting Theme")
                 
                 // Reset Camera & Pose Button
                 Button(action: handleReset) {
-                    ResetFramingIcon(size: 18)
-                        .frame(width: 34, height: 34)
-                        .background(.ultraThinMaterial)
+                    ResetFramingIcon(size: 16)
+                        .frame(width: 32, height: 32)
+                        .background(Color.primary.opacity(0.06))
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.primary.opacity(0.1), lineWidth: 1))
+                        .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .help("Reset camera framing & neutral pose (⌘0)")
@@ -162,19 +167,11 @@ public struct AvatarDetailView: View {
                         isLiveCameraActive.toggle()
                     }
                 }) {
-                    ZStack {
-                        LiveCameraIcon(size: 20, isActive: isLiveCameraActive)
-                        
-                        if isLiveCameraActive {
-                            Circle()
-                                .stroke(Color.green, lineWidth: 2)
-                                .frame(width: 36, height: 36)
-                        }
-                    }
-                    .frame(width: 34, height: 34)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(isLiveCameraActive ? Color.green.opacity(0.5) : Color.primary.opacity(0.1), lineWidth: 1))
+                    LiveCameraIcon(size: 17, isActive: isLiveCameraActive)
+                        .frame(width: 32, height: 32)
+                        .background(isLiveCameraActive ? Color.green.opacity(0.15) : Color.primary.opacity(0.06))
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(isLiveCameraActive ? Color.green.opacity(0.6) : Color.primary.opacity(0.08), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .help(isLiveCameraActive ? "Switch back to 3D Stage" : "Live Camera Face-Tracking Mirror")
@@ -332,42 +329,44 @@ public struct AvatarDetailView: View {
         HStack(spacing: 12) {
             // [ 📋 Copy ] Button with animated feedback
             Button(action: copyAvatarToClipboard) {
-                HStack(spacing: 10) {
+                HStack(spacing: 9) {
                     Image(systemName: showCopiedFeedback ? "checkmark.circle.fill" : "doc.on.doc.fill")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(showCopiedFeedback ? .green : .primary)
                     
-                    Text(showCopiedFeedback ? "Copied to Clipboard!" : "Copy Image")
-                        .font(.system(size: 15, weight: .semibold))
+                    Text(showCopiedFeedback ? "Copied to Clipboard!" : "Copy")
+                        .font(.system(size: 14.5, weight: .semibold))
                         .foregroundColor(.primary)
                 }
-                .frame(width: 250, height: 48)
-                .background(.ultraThickMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .frame(width: 200, height: 42)
+                .background(Color.primary.opacity(isHoveringCopy ? 0.12 : 0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(showCopiedFeedback ? Color.green.opacity(0.6) : Color.primary.opacity(0.12), lineWidth: 1.5)
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(showCopiedFeedback ? Color.green.opacity(0.6) : Color.primary.opacity(0.1), lineWidth: 1.2)
                 )
-                .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
+                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.2 : 0.04), radius: 6, x: 0, y: 2)
             }
             .buttonStyle(.plain)
+            .onHover { h in isHoveringCopy = h }
             .help("Copy transparent PNG to clipboard (⌘C)")
             
             // [ 📤 ] Share / Export Button
             Button(action: shareAvatar) {
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.primary)
-                    .frame(width: 48, height: 48)
-                    .background(.ultraThickMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .frame(width: 42, height: 42)
+                    .background(Color.primary.opacity(isHoveringShare ? 0.12 : 0.07))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.primary.opacity(0.12), lineWidth: 1.5)
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.primary.opacity(0.1), lineWidth: 1.2)
                     )
-                    .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
+                    .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.2 : 0.04), radius: 6, x: 0, y: 2)
             }
             .buttonStyle(.plain)
+            .onHover { h in isHoveringShare = h }
             .help("Share avatar (AirDrop, Messages, Mail)...")
         }
     }
