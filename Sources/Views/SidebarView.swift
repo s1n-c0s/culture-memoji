@@ -33,6 +33,9 @@ public struct SidebarView: View {
     @State private var isSelectionMode: Bool = false
     @State private var selectedCharacterIds: Set<String> = []
     @State private var isShowingDeleteBatchAlert: Bool = false
+    @State private var isHoveringCollapse: Bool = false
+    @State private var isHoveringSearch: Bool = false
+    @State private var isHoveringNewCharacter: Bool = false
     
     private let supportedDropTypes: [String] = [
         UTType.utf8PlainText.identifier,
@@ -139,23 +142,33 @@ public struct SidebarView: View {
     
     public var body: some View {
         VStack(spacing: 0) {
-            // Top Section (Action Bar, Filter, Search)
+            // Top Section (Header Toolbar)
             sidebarHeader
-                .padding(.horizontal, 18)
-                .padding(.top, 16)
-                .padding(.bottom, 10)
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity)
+                .background(
+                    AppTheme.sidebarBackground
+                        .overlay(
+                            Rectangle()
+                                .fill(Color.primary.opacity(0.06))
+                                .frame(height: 1),
+                            alignment: .bottom
+                        )
+                )
             
             // Content Area (Characters or Emotes Grid/List)
             ScrollView {
                 if currentTab == .character {
                     characterContent
-                        .padding(.horizontal, 18)
-                        .padding(.top, 4)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 10)
                         .padding(.bottom, 24)
                 } else {
                     emoteContent
-                        .padding(.horizontal, 18)
-                        .padding(.top, 4)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 10)
                         .padding(.bottom, 24)
                 }
             }
@@ -207,19 +220,20 @@ public struct SidebarView: View {
         }
     }
     
-    // MARK: - Header (Action Row + Search)
+    // MARK: - Header (Toolbar: Title, Actions & Search)
     
     private var sidebarHeader: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Row 1: Collapse Button + Action Buttons (New Character & Select / Filter Menu) + Search
+            // Row 1: Collapse Button + Title with Live Count Badge + Search Toggle Button
             HStack(spacing: 8) {
+                // Collapse Sidebar Button
                 if let toggle = onToggleSidebar {
                     Button(action: toggle) {
                         Image(systemName: "sidebar.leading")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(isHoveringCollapse ? .primary : .secondary)
                             .frame(width: 30, height: 30)
-                            .background(Color.primary.opacity(0.06))
+                            .background(Color.primary.opacity(isHoveringCollapse ? 0.1 : 0.05))
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
@@ -227,105 +241,28 @@ public struct SidebarView: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .onHover { h in isHoveringCollapse = h }
                     .help("Collapse Sidebar (⌘\\)")
                 }
                 
-                if currentTab == .character {
-                    HStack(spacing: 6) {
-                        // + New Character button
-                        Button(action: onAddNewMemoji) {
-                            HStack(spacing: 5) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 12, weight: .bold))
-                                Text("New Character")
-                                    .font(.system(size: 12.5, weight: .medium))
-                            }
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.primary.opacity(0.05))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .help("Create a new 3D Memoji (⌘N)")
-                        
-                        // Select Multiple toggle button
-                        Button(action: {
-                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                                isSelectionMode.toggle()
-                                if !isSelectionMode {
-                                    selectedCharacterIds.removeAll()
-                                }
-                            }
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: isSelectionMode ? "checkmark.circle.fill" : "checkmark.circle")
-                                    .font(.system(size: 11.5, weight: .semibold))
-                                Text(isSelectionMode ? "Done" : "Select")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .foregroundColor(isSelectionMode ? .accentColor : .primary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(isSelectionMode ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(isSelectionMode ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.08), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .help(isSelectionMode ? "Exit Selection Mode (Esc)" : "Select multiple characters to favorite or delete")
-                    }
-                } else {
-                    // Emote category filter menu
-                    Menu {
-                        ForEach(StickerCategory.allCases) { cat in
-                            Button(action: { selectedEmoteCategory = cat }) {
-                                HStack {
-                                    Text(cat.rawValue)
-                                    if selectedEmoteCategory == cat {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: selectedEmoteCategory.iconName)
-                                .font(.system(size: 12))
-                            Text(selectedEmoteCategory == .all ? "All Emotes" : selectedEmoteCategory.rawValue)
-                                .font(.system(size: 13, weight: .medium))
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(.secondary)
-                        }
+                // Section Title & Item Count Badge
+                HStack(spacing: 7) {
+                    Text(currentTab == .character ? "Characters" : "Emotes")
+                        .font(.system(size: 15.5, weight: .bold, design: .rounded))
                         .foregroundColor(.primary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.primary.opacity(0.05))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                        )
-                    }
-                    .menuStyle(.borderlessButton)
+                    
+                    Text("\(currentTab == .character ? filteredCharacters.count : filteredEmotes.count)")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.primary.opacity(0.06))
+                        .clipShape(Capsule())
                 }
                 
                 Spacer()
                 
-                // Search icon
+                // Search Toggle Button (matching 30x30 rounded square)
                 Button(action: {
                     withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
                         isSearchActive.toggle()
@@ -335,20 +272,133 @@ public struct SidebarView: View {
                     }
                 }) {
                     ZStack {
-                        Circle()
-                            .fill(isSearchActive || !searchText.isEmpty ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05))
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(isSearchActive || !searchText.isEmpty ? Color.accentColor.opacity(0.14) : Color.primary.opacity(isHoveringSearch ? 0.1 : 0.05))
                             .frame(width: 30, height: 30)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(isSearchActive || !searchText.isEmpty ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.08), lineWidth: 1)
+                            )
                         
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundColor(isSearchActive || !searchText.isEmpty ? Color.accentColor : Color.primary.opacity(0.7))
+                            .foregroundColor(isSearchActive || !searchText.isEmpty ? Color.accentColor : (isHoveringSearch ? .primary : .secondary))
                     }
                 }
                 .buttonStyle(.plain)
-                .help("Search (⌘F)")
+                .onHover { h in isHoveringSearch = h }
+                .help(isSearchActive ? "Close Search" : "Search (⌘F)")
             }
             
-            // Row 2: Collapsible Search TextField
+            // Row 2: Contextual Actions Row
+            HStack(spacing: 8) {
+                if currentTab == .character {
+                    // + New Character button (prominent accented CTA)
+                    Button(action: onAddNewMemoji) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 11.5, weight: .bold))
+                            Text("New Character")
+                                .font(.system(size: 12.5, weight: .semibold))
+                        }
+                        .foregroundColor(.accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5.5)
+                        .background(Color.accentColor.opacity(isHoveringNewCharacter ? 0.18 : 0.11))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.accentColor.opacity(0.28), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { h in isHoveringNewCharacter = h }
+                    .help("Create a new 3D Memoji (⌘N)")
+                    
+                    Spacer()
+                    
+                    // Select Multiple toggle button
+                    Button(action: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                            isSelectionMode.toggle()
+                            if !isSelectionMode {
+                                selectedCharacterIds.removeAll()
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 4.5) {
+                            Image(systemName: isSelectionMode ? "checkmark.circle.fill" : "checkmark.circle")
+                                .font(.system(size: 11.5, weight: .semibold))
+                            Text(isSelectionMode ? "Done" : "Select")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .foregroundColor(isSelectionMode ? .accentColor : .primary.opacity(0.85))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5.5)
+                        .background(isSelectionMode ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(isSelectionMode ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.08), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help(isSelectionMode ? "Exit Selection Mode (Esc)" : "Select multiple characters to favorite or delete")
+                } else {
+                    // Emote category filter menu
+                    Menu {
+                        ForEach(StickerCategory.allCases) { cat in
+                            Button(action: { selectedEmoteCategory = cat }) {
+                                HStack {
+                                    Label(cat.rawValue, systemImage: cat.iconName)
+                                    if selectedEmoteCategory == cat {
+                                        Spacer()
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: selectedEmoteCategory.iconName)
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundColor(Color.accentColor)
+                            Text(selectedEmoteCategory == .all ? "All Emotes" : selectedEmoteCategory.rawValue)
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundColor(.primary)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5.5)
+                        .background(Color.primary.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        )
+                    }
+                    .menuStyle(.borderlessButton)
+                    
+                    Spacer()
+                    
+                    if selectedEmoteCategory != .all {
+                        Button(action: {
+                            withAnimation(.spring(response: 0.22, dampingFraction: 0.8)) {
+                                selectedEmoteCategory = .all
+                            }
+                        }) {
+                            Text("Clear")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            
+            // Row 3: Collapsible Search TextField
             if isSearchActive || !searchText.isEmpty {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
@@ -371,13 +421,11 @@ public struct SidebarView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                )
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 1)
                 )
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
