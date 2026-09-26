@@ -38,11 +38,23 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
     /// Updates the target stage AVTView being driven by face tracking
     public func updateTargetView(_ view: NSView?) {
         self.targetStageView = view
+        if let view = view {
+            AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.0)
+        }
     }
     
     /// Checks camera permission and starts face tracking on the provided target AVTView
     public func startTracking(on view: NSView?) {
         self.targetStageView = view
+        
+        if let view = view {
+            AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.0)
+        }
+        
+        // If capture session is already running, just update target view and continue seamlessly
+        if isRunning, captureSession != nil {
+            return
+        }
         
         let status = AVCaptureDevice.authorizationStatus(for: .video)
         switch status {
@@ -101,6 +113,16 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
     private func setupAndStartSession() {
         captureQueue.async { [weak self] in
             guard let self = self else { return }
+            
+            // Clean up any stale existing session first
+            if let existing = self.captureSession {
+                if existing.isRunning {
+                    existing.stopRunning()
+                }
+                self.captureSession = nil
+                self.videoOutput = nil
+                self.sampleDelegate = nil
+            }
             
             let session = AVCaptureSession()
             session.beginConfiguration()

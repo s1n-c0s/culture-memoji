@@ -181,7 +181,10 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
             let targetId = avatarId
             DispatchQueue.main.async {
                 guard context.coordinator.currentAvatarId == targetId else { return }
-                if let pose = activePoseName {
+                if FaceTrackingManager.shared.isRunning {
+                    AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.0)
+                    FaceTrackingManager.shared.updateTargetView(avtView)
+                } else if let pose = activePoseName {
                     AvatarKitBridge.shared.applyStickerPose(
                         named: pose,
                         to: avtView,
@@ -225,7 +228,9 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         } else if context.coordinator.currentPose != activePoseName {
             // Update pose when changed (including nil = clear back to neutral)
             context.coordinator.currentPose = activePoseName
-            if let pose = activePoseName {
+            if FaceTrackingManager.shared.isRunning {
+                // If live tracking is active, do not apply static sticker poses that lock expressions
+            } else if let pose = activePoseName {
                 AvatarKitBridge.shared.applyStickerPose(
                     named: pose,
                     to: avtView,

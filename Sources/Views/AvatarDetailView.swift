@@ -267,9 +267,10 @@ public struct AvatarDetailView: View {
         }
         .onChange(of: avatarItem.id) { _, _ in
             if isLiveCameraActive {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    faceTracker.startTracking(on: stageController.avtView)
+                if let view = stageController.avtView {
+                    AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.0)
                 }
+                faceTracker.updateTargetView(stageController.avtView)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .copyCurrentAvatarRequested)) { _ in
@@ -535,6 +536,9 @@ public struct AvatarDetailView: View {
             isLiveCameraActive.toggle()
         }
         if isLiveCameraActive {
+            if let view = stageController.avtView {
+                AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.0)
+            }
             faceTracker.startTracking(on: stageController.avtView)
         } else {
             faceTracker.stopTracking()
