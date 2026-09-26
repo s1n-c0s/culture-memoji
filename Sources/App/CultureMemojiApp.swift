@@ -4,6 +4,8 @@ import AppKit
 public extension Notification.Name {
     static let copyCurrentAvatarRequested = Notification.Name("copyCurrentAvatarRequested")
     static let resetCameraAndPoseRequested = Notification.Name("resetCameraAndPoseRequested")
+    static let toggleSidebarRequested = Notification.Name("toggleSidebarRequested")
+    static let toggleFullScreenRequested = Notification.Name("toggleFullScreenRequested")
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -59,6 +61,18 @@ public struct CultureMemojiApp: App {
             }
             
             CommandGroup(after: .sidebar) {
+                Button("Toggle Sidebar") {
+                    NotificationCenter.default.post(name: .toggleSidebarRequested, object: nil)
+                }
+                .keyboardShortcut("\\", modifiers: .command)
+                
+                Button("Toggle Full Screen") {
+                    NotificationCenter.default.post(name: .toggleFullScreenRequested, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: [.control, .command])
+                
+                Divider()
+                
                 Button("Reset Camera Framing & Pose") {
                     NotificationCenter.default.post(name: .resetCameraAndPoseRequested, object: nil)
                 }

@@ -6,12 +6,16 @@ public struct CharacterCardView: View {
     public let avatarObject: AnyObject?
     public let isSelected: Bool
     public let isFavorite: Bool
+    public let isSelectionMode: Bool
+    public let isMarked: Bool
     public let onSelect: () -> Void
     public let onToggleFavorite: () -> Void
     public let onEdit: () -> Void
     public let onDuplicate: (() -> Void)?
     public let onDelete: (() -> Void)?
     public let onRename: (() -> Void)?
+    public let onHoldClick: (() -> Void)?
+    public let onEnterSelectionMode: (() -> Void)?
     
     @State private var thumbnail: NSImage?
     @State private var isHovered: Bool = false
@@ -21,23 +25,31 @@ public struct CharacterCardView: View {
         avatarObject: AnyObject?,
         isSelected: Bool,
         isFavorite: Bool,
+        isSelectionMode: Bool = false,
+        isMarked: Bool = false,
         onSelect: @escaping () -> Void,
         onToggleFavorite: @escaping () -> Void,
         onEdit: @escaping () -> Void,
         onDuplicate: (() -> Void)? = nil,
         onDelete: (() -> Void)? = nil,
-        onRename: (() -> Void)? = nil
+        onRename: (() -> Void)? = nil,
+        onHoldClick: (() -> Void)? = nil,
+        onEnterSelectionMode: (() -> Void)? = nil
     ) {
         self.item = item
         self.avatarObject = avatarObject
         self.isSelected = isSelected
         self.isFavorite = isFavorite
+        self.isSelectionMode = isSelectionMode
+        self.isMarked = isMarked
         self.onSelect = onSelect
         self.onToggleFavorite = onToggleFavorite
         self.onEdit = onEdit
         self.onDuplicate = onDuplicate
         self.onDelete = onDelete
         self.onRename = onRename
+        self.onHoldClick = onHoldClick
+        self.onEnterSelectionMode = onEnterSelectionMode
         self._thumbnail = State(initialValue: ThumbnailCache.shared.cachedImage(forKey: "avatar_\(item.id)"))
     }
     
@@ -73,93 +85,154 @@ public struct CharacterCardView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 
-                // Bottom floating action badges (Star & Edit)
-                HStack {
-                    // Star button
-                    Button(action: onToggleFavorite) {
-                        ZStack {
-                            Circle()
-                                .fill(isFavorite ? AppTheme.goldColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.08) : Color.clear))
-                                .frame(width: 26, height: 26)
-                            
-                            Image(systemName: isFavorite ? "star.fill" : "star")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundColor(isFavorite ? AppTheme.goldColor : (isHovered ? Color.primary.opacity(0.8) : Color.primary.opacity(0.35)))
+                // Bottom floating action badges (Star & Edit) - shown when not in batch selection mode
+                if !isSelectionMode {
+                    HStack {
+                        // Star button
+                        Button(action: onToggleFavorite) {
+                            ZStack {
+                                Circle()
+                                    .fill(isFavorite ? AppTheme.goldColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.08) : Color.clear))
+                                    .frame(width: 26, height: 26)
+                                
+                                Image(systemName: isFavorite ? "star.fill" : "star")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(isFavorite ? AppTheme.goldColor : (isHovered ? Color.primary.opacity(0.8) : Color.primary.opacity(0.35)))
+                            }
                         }
-                    }
-                    .buttonStyle(.plain)
-                    .help(isFavorite ? "Remove from favorites" : "Add to favorites")
-                    
-                    Spacer()
-                    
-                    // Edit pencil button
-                    Button(action: onEdit) {
-                        ZStack {
-                            Circle()
-                                .fill(isHovered ? Color.primary.opacity(0.08) : Color.clear)
-                                .frame(width: 26, height: 26)
-                            
-                            Image(systemName: "pencil")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(isHovered ? Color.primary.opacity(0.9) : Color.primary.opacity(0.4))
+                        .buttonStyle(.plain)
+                        .help(isFavorite ? "Remove from favorites" : "Add to favorites")
+                        
+                        Spacer()
+                        
+                        // Edit pencil button
+                        Button(action: onEdit) {
+                            ZStack {
+                                Circle()
+                                    .fill(isHovered ? Color.primary.opacity(0.08) : Color.clear)
+                                    .frame(width: 26, height: 26)
+                                
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(isHovered ? Color.primary.opacity(0.9) : Color.primary.opacity(0.4))
+                            }
                         }
+                        .buttonStyle(.plain)
+                        .help("Customize 3D Memoji")
                     }
-                    .buttonStyle(.plain)
-                    .help("Customize 3D Memoji")
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+                
+                // Selection Mark Indicator (Top-Leading) - shown in selection mode
+                if isSelectionMode {
+                    VStack {
+                        HStack {
+                            ZStack {
+                                Circle()
+                                    .fill(isMarked ? Color.accentColor : Color.black.opacity(0.35))
+                                    .frame(width: 22, height: 22)
+                                
+                                if isMarked {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(.white)
+                                } else {
+                                    Circle()
+                                        .stroke(Color.white.opacity(0.85), lineWidth: 1.5)
+                                        .frame(width: 20, height: 20)
+                                }
+                            }
+                            .shadow(color: Color.black.opacity(0.25), radius: 3, x: 0, y: 1)
+                            
+                            Spacer()
+                            
+                            if isFavorite {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(AppTheme.goldColor)
+                                    .padding(4)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(8)
+                    .transition(.scale.combined(with: .opacity))
+                }
             }
             .aspectRatio(1.0, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
                     .stroke(
-                        isSelected ? Color.accentColor : (isHovered ? Color.primary.opacity(0.15) : Color.primary.opacity(0.06)),
-                        lineWidth: isSelected ? 2.5 : 1
+                        isSelectionMode && isMarked
+                            ? Color.accentColor
+                            : (isSelected && !isSelectionMode ? Color.accentColor : (isHovered ? Color.primary.opacity(0.15) : Color.primary.opacity(0.06))),
+                        lineWidth: (isSelectionMode && isMarked) || (isSelected && !isSelectionMode) ? 2.5 : 1
                     )
             )
             .shadow(
-                color: isSelected ? Color.accentColor.opacity(0.22) : (isHovered ? Color.black.opacity(0.08) : Color.black.opacity(0.02)),
-                radius: isSelected ? 8 : (isHovered ? 6 : 2),
+                color: (isSelectionMode && isMarked) || (isSelected && !isSelectionMode)
+                    ? Color.accentColor.opacity(0.22)
+                    : (isHovered ? Color.black.opacity(0.08) : Color.black.opacity(0.02)),
+                radius: (isSelectionMode && isMarked) || (isSelected && !isSelectionMode) ? 8 : (isHovered ? 6 : 2),
                 x: 0,
-                y: isSelected ? 3 : (isHovered ? 3 : 1)
+                y: (isSelectionMode && isMarked) || (isSelected && !isSelectionMode) ? 3 : (isHovered ? 3 : 1)
             )
             .scaleEffect(isHovered ? 1.02 : 1.0)
             .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
             .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isSelected)
+            .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isMarked)
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.45)
+                .onEnded { _ in
+                    onHoldClick?()
+                }
+        )
         .onHover { h in
             isHovered = h
         }
         .contextMenu {
-            Button(action: onEdit) {
-                Label("Customize Memoji...", systemImage: "paintbrush")
-            }
-            
-            if let onRen = onRename {
-                Button(action: onRen) {
-                    Label("Rename...", systemImage: "pencil.line")
+            if isSelectionMode {
+                Button(action: onSelect) {
+                    Label(isMarked ? "Deselect" : "Select", systemImage: isMarked ? "circle" : "checkmark.circle")
                 }
-            }
-            
-            if let onDup = onDuplicate {
-                Button(action: onDup) {
-                    Label("Duplicate Memoji", systemImage: "doc.on.doc")
+            } else {
+                Button(action: { onEnterSelectionMode?() }) {
+                    Label("Select Characters...", systemImage: "checkmark.circle")
                 }
-            }
-            
-            Divider()
-            
-            Button(action: onToggleFavorite) {
-                Label(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "star.slash" : "star")
-            }
-            
-            if let onDel = onDelete {
+                
                 Divider()
-                Button(role: .destructive, action: onDel) {
-                    Label("Delete Memoji", systemImage: "trash")
+                
+                Button(action: onEdit) {
+                    Label("Customize Memoji...", systemImage: "paintbrush")
+                }
+                
+                if let onRen = onRename {
+                    Button(action: onRen) {
+                        Label("Rename...", systemImage: "pencil.line")
+                    }
+                }
+                
+                if let onDup = onDuplicate {
+                    Button(action: onDup) {
+                        Label("Duplicate Memoji", systemImage: "doc.on.doc")
+                    }
+                }
+                
+                Divider()
+                
+                Button(action: onToggleFavorite) {
+                    Label(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "star.slash" : "star")
+                }
+                
+                if let onDel = onDelete {
+                    Divider()
+                    Button(role: .destructive, action: onDel) {
+                        Label("Delete Memoji", systemImage: "trash")
+                    }
                 }
             }
         }
@@ -176,9 +249,13 @@ public struct CharacterListRowView: View {
     public let avatarObject: AnyObject?
     public let isSelected: Bool
     public let isFavorite: Bool
+    public let isSelectionMode: Bool
+    public let isMarked: Bool
     public let onSelect: () -> Void
     public let onToggleFavorite: () -> Void
     public let onEdit: () -> Void
+    public let onHoldClick: (() -> Void)?
+    public let onEnterSelectionMode: (() -> Void)?
     
     @State private var thumbnail: NSImage?
     @State private var isHovered: Bool = false
@@ -188,23 +265,51 @@ public struct CharacterListRowView: View {
         avatarObject: AnyObject?,
         isSelected: Bool,
         isFavorite: Bool,
+        isSelectionMode: Bool = false,
+        isMarked: Bool = false,
         onSelect: @escaping () -> Void,
         onToggleFavorite: @escaping () -> Void,
-        onEdit: @escaping () -> Void
+        onEdit: @escaping () -> Void,
+        onHoldClick: (() -> Void)? = nil,
+        onEnterSelectionMode: (() -> Void)? = nil
     ) {
         self.item = item
         self.avatarObject = avatarObject
         self.isSelected = isSelected
         self.isFavorite = isFavorite
+        self.isSelectionMode = isSelectionMode
+        self.isMarked = isMarked
         self.onSelect = onSelect
         self.onToggleFavorite = onToggleFavorite
         self.onEdit = onEdit
+        self.onHoldClick = onHoldClick
+        self.onEnterSelectionMode = onEnterSelectionMode
         self._thumbnail = State(initialValue: ThumbnailCache.shared.cachedImage(forKey: "avatar_\(item.id)"))
     }
     
     public var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 12) {
+                // Selection mark indicator in list mode
+                if isSelectionMode {
+                    ZStack {
+                        Circle()
+                            .fill(isMarked ? Color.accentColor : Color.clear)
+                            .frame(width: 18, height: 18)
+                        
+                        if isMarked {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .foregroundColor(.white)
+                        } else {
+                            Circle()
+                                .stroke(Color.secondary.opacity(0.5), lineWidth: 1.5)
+                                .frame(width: 16, height: 16)
+                        }
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                }
+                
                 // Thumbnail Box
                 ZStack {
                     RoundedRectangle(cornerRadius: 10)
@@ -239,35 +344,80 @@ public struct CharacterListRowView: View {
                 
                 Spacer()
                 
-                Button(action: onToggleFavorite) {
-                    Image(systemName: isFavorite ? "star.fill" : "star")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(isFavorite ? AppTheme.goldColor : Color.primary.opacity(0.35))
-                        .frame(width: 28, height: 28)
+                if !isSelectionMode {
+                    Button(action: onToggleFavorite) {
+                        Image(systemName: isFavorite ? "star.fill" : "star")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(isFavorite ? AppTheme.goldColor : Color.primary.opacity(0.35))
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button(action: onEdit) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color.primary.opacity(0.6))
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                } else if isFavorite {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(AppTheme.goldColor)
+                        .padding(.trailing, 4)
                 }
-                .buttonStyle(.plain)
-                
-                Button(action: onEdit) {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Color.primary.opacity(0.6))
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(isSelected ? Color.accentColor.opacity(0.12) : (isHovered ? Color.primary.opacity(0.04) : Color.clear))
+                    .fill(
+                        (isSelectionMode && isMarked) || (isSelected && !isSelectionMode)
+                            ? Color.accentColor.opacity(0.12)
+                            : (isHovered ? Color.primary.opacity(0.04) : Color.clear)
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
+                    .stroke(
+                        (isSelectionMode && isMarked) || (isSelected && !isSelectionMode)
+                            ? Color.accentColor.opacity(0.5)
+                            : Color.clear,
+                        lineWidth: 1
+                    )
             )
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.45)
+                .onEnded { _ in
+                    onHoldClick?()
+                }
+        )
         .onHover { h in isHovered = h }
+        .contextMenu {
+            if isSelectionMode {
+                Button(action: onSelect) {
+                    Label(isMarked ? "Deselect" : "Select", systemImage: isMarked ? "circle" : "checkmark.circle")
+                }
+            } else {
+                Button(action: { onEnterSelectionMode?() }) {
+                    Label("Select Characters...", systemImage: "checkmark.circle")
+                }
+                
+                Divider()
+                
+                Button(action: onEdit) {
+                    Label("Customize Memoji...", systemImage: "paintbrush")
+                }
+                
+                Divider()
+                
+                Button(action: onToggleFavorite) {
+                    Label(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "star.slash" : "star")
+                }
+            }
+        }
         .task(id: item.id) {
             if thumbnail == nil {
                 thumbnail = await ThumbnailCache.shared.getThumbnail(for: item, avatarObject: avatarObject)

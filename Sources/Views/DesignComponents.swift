@@ -48,7 +48,7 @@ public struct AppTheme {
     public static let goldColor = Color(red: 1.0, green: 0.72, blue: 0.0)
 }
 
-/// Circular counter-clockwise arrow with center dot matching the design
+/// Circular counter-clockwise arrow matching Apple's standard reset framing icon
 public struct ResetFramingIcon: View {
     public var size: CGFloat = 16
     
@@ -57,15 +57,10 @@ public struct ResetFramingIcon: View {
     }
     
     public var body: some View {
-        ZStack {
-            Image(systemName: "arrow.counterclockwise")
-                .font(.system(size: size, weight: .bold))
-            
-            Circle()
-                .frame(width: size * 0.22, height: size * 0.22)
-        }
-        .foregroundColor(.primary)
-        .frame(width: size + 6, height: size + 6)
+        Image(systemName: "arrow.counterclockwise")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundColor(.primary)
+            .frame(width: size + 6, height: size + 6)
     }
 }
 

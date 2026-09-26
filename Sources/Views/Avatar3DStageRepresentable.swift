@@ -52,6 +52,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     public let clone: Bool
     public let mutationId: UUID?
     public let stageController: StageViewController?
+    public let onDoubleTap: (() -> Void)?
     
     public init(
         avatarId: String? = nil,
@@ -61,7 +62,8 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         animojiName: String? = nil,
         clone: Bool = true,
         mutationId: UUID? = nil,
-        stageController: StageViewController? = nil
+        stageController: StageViewController? = nil,
+        onDoubleTap: (() -> Void)? = nil
     ) {
         self.avatarId = avatarId
         self.avatar = avatar
@@ -71,6 +73,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         self.clone = clone
         self.mutationId = mutationId
         self.stageController = stageController
+        self.onDoubleTap = onDoubleTap
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -104,6 +107,13 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         context.coordinator.currentAvatarId = avatarId
         context.coordinator.currentPose = activePoseName
         context.coordinator.lastMutationId = mutationId
+        context.coordinator.onDoubleTap = onDoubleTap
+        
+        let doubleClick = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleClick(_:)))
+        doubleClick.numberOfClicksRequired = 2
+        doubleClick.delaysPrimaryMouseButtonEvents = false
+        doubleClick.delegate = context.coordinator
+        avtView.addGestureRecognizer(doubleClick)
         
         // Apply initial pose after one runloop pass with smooth transition animation
         if let pose = activePoseName {
@@ -122,6 +132,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     
     public func updateNSView(_ nsView: NSView, context: Context) {
         guard let avtView = context.coordinator.avtView else { return }
+        context.coordinator.onDoubleTap = onDoubleTap
         
         if let sc = stageController, sc.avtView !== avtView {
             sc.avtView = avtView
@@ -241,14 +252,25 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
     }
     
     @MainActor
-    public final class Coordinator {
+    public final class Coordinator: NSObject, NSGestureRecognizerDelegate {
         weak var stageController: StageViewController?
         var avtView: NSView?
         var currentAvatar: AnyObject?
         var currentAvatarId: String?
         var currentPose: String?
         var lastMutationId: UUID?
+        var onDoubleTap: (() -> Void)?
         fileprivate var currentFadeOverlay: PassthroughImageView?
+        
+        @objc func handleDoubleClick(_ sender: NSClickGestureRecognizer) {
+            if sender.state == .ended {
+                onDoubleTap?()
+            }
+        }
+        
+        public func gestureRecognizer(_ gestureRecognizer: NSGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: NSGestureRecognizer) -> Bool {
+            return true
+        }
     }
 }
 

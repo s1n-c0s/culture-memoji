@@ -37,6 +37,8 @@ public struct AvatarDetailView: View {
     public let onEditRequested: () -> Void
     public let onRenameRequested: ((String) -> Void)?
     public let onCopiedNotification: ((String) -> Void)?
+    public let isFullScreen: Bool
+    public let onToggleFullScreen: (() -> Void)?
     
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var stageController = StageViewController()
@@ -49,23 +51,32 @@ public struct AvatarDetailView: View {
     @State private var lightingTheme: StudioLightingTheme = .studio
     @State private var isHoveringCopy: Bool = false
     @State private var isHoveringShare: Bool = false
+    @State private var isHoveringReset: Bool = false
+    @State private var isHoveringHintReset: Bool = false
+    @State private var isHoveringFullScreen: Bool = false
+    @State private var resetSpinDegrees: Double = 0
+    @State private var shareAnchorView: NSView? = nil
     
     public init(
         avatarItem: AvatarItem,
         avatarObject: AnyObject?,
         activePoseName: String? = nil,
+        isFullScreen: Bool = false,
         onResetPoseAndCamera: @escaping () -> Void,
         onEditRequested: @escaping () -> Void = {},
         onRenameRequested: ((String) -> Void)? = nil,
-        onCopiedNotification: ((String) -> Void)? = nil
+        onCopiedNotification: ((String) -> Void)? = nil,
+        onToggleFullScreen: (() -> Void)? = nil
     ) {
         self.avatarItem = avatarItem
         self.avatarObject = avatarObject
         self.activePoseName = activePoseName
+        self.isFullScreen = isFullScreen
         self.onResetPoseAndCamera = onResetPoseAndCamera
         self.onEditRequested = onEditRequested
         self.onRenameRequested = onRenameRequested
         self.onCopiedNotification = onCopiedNotification
+        self.onToggleFullScreen = onToggleFullScreen
     }
     
     public var isAnimoji: Bool {
@@ -88,6 +99,9 @@ public struct AvatarDetailView: View {
                 endRadius: 650
             )
             .ignoresSafeArea()
+            .onTapGesture(count: 2) {
+                handleReset()
+            }
             
             // Full-Area 3D Viewport (fills full available area of stage without clipping)
             if isLiveCameraActive {
@@ -127,7 +141,8 @@ public struct AvatarDetailView: View {
                     animojiName: animojiName,
                     clone: true,
                     mutationId: stageMutationId,
-                    stageController: stageController
+                    stageController: stageController,
+                    onDoubleTap: handleReset
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.bottom, 130)
@@ -158,19 +173,42 @@ public struct AvatarDetailView: View {
             VStack(spacing: 8) {
                 Spacer()
                 
-                // Subtle gesture hint
+                // Subtle gesture hint with Quick Reset
                 if !isLiveCameraActive {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 6) {
                         Image(systemName: "hand.draw")
                             .font(.system(size: 10))
                         Text("Drag to rotate • Scroll to zoom")
                             .font(.system(size: 10.5, weight: .medium))
+                        
+                        Text("•")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.secondary.opacity(0.35))
+                        
+                        Button(action: handleReset) {
+                            HStack(spacing: 3.5) {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .font(.system(size: 9.5, weight: .bold))
+                                    .rotationEffect(.degrees(resetSpinDegrees))
+                                Text("Reset")
+                                    .font(.system(size: 10.5, weight: .semibold))
+                            }
+                            .foregroundColor(isHoveringHintReset ? .primary : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { h in isHoveringHintReset = h }
+                        .help("Reset camera framing & neutral pose (⌘0)")
                     }
-                    .foregroundColor(.secondary.opacity(0.7))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 3.5)
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 4.5)
                     .background(.ultraThinMaterial)
                     .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.04), radius: 4, y: 1)
                 }
                 
                 // Character Name & Badge
@@ -233,12 +271,18 @@ public struct AvatarDetailView: View {
                 // Reset Camera & Pose Button
                 Button(action: handleReset) {
                     ResetFramingIcon(size: 16)
+                        .rotationEffect(.degrees(resetSpinDegrees))
                         .frame(width: 32, height: 32)
-                        .background(Color.primary.opacity(0.06))
+                        .background(Color.primary.opacity(isHoveringReset ? 0.12 : 0.06))
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 1))
+                        .overlay(
+                            Circle()
+                                .stroke(isHoveringReset ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
+                        )
+                        .scaleEffect(isHoveringReset ? 1.06 : 1.0)
                 }
                 .buttonStyle(.plain)
+                .onHover { h in isHoveringReset = h }
                 .keyboardShortcut("0", modifiers: .command)
                 .help("Reset camera framing & neutral pose (⌘0)")
                 
@@ -256,6 +300,23 @@ public struct AvatarDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .help(isLiveCameraActive ? "Switch back to 3D Stage" : "Live Camera Face-Tracking Mirror")
+                
+                // Full Screen Toggle Button
+                Button(action: {
+                    onToggleFullScreen?()
+                }) {
+                    Image(systemName: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.primary.opacity(0.85))
+                        .frame(width: 32, height: 32)
+                        .background(Color.primary.opacity(isHoveringFullScreen ? 0.12 : 0.06))
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 1))
+                        .scaleEffect(isHoveringFullScreen ? 1.06 : 1.0)
+                }
+                .buttonStyle(.plain)
+                .onHover { h in isHoveringFullScreen = h }
+                .help(isFullScreen ? "Exit Full Screen (⌃⌘F)" : "Enter Full Screen (⌃⌘F)")
             }
         }
     }
@@ -375,6 +436,7 @@ public struct AvatarDetailView: View {
                     .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.2 : 0.04), radius: 6, x: 0, y: 2)
             }
             .buttonStyle(.plain)
+            .background(ShareAnchorRepresentable(anchorView: $shareAnchorView))
             .onHover { h in isHoveringShare = h }
             .help("Share avatar (AirDrop, Messages, Mail)...")
         }
@@ -392,6 +454,9 @@ public struct AvatarDetailView: View {
     }
     
     private func handleReset() {
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.65)) {
+            resetSpinDegrees -= 360
+        }
         if let view = stageController.avtView {
             AvatarKitBridge.shared.resetCameraFraming(on: view)
         }
@@ -447,8 +512,12 @@ public struct AvatarDetailView: View {
         }
         
         let picker = NSSharingServicePicker(items: [tempURL])
-        if let window = NSApplication.shared.keyWindow, let contentView = window.contentView {
-            picker.show(relativeTo: NSRect(x: contentView.bounds.midX, y: contentView.bounds.minY + 60, width: 1, height: 1), of: contentView, preferredEdge: .maxY)
+        if let anchor = shareAnchorView, anchor.window != nil {
+            picker.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        } else if let window = NSApplication.shared.keyWindow, let contentView = window.contentView {
+            let clickLoc = window.mouseLocationOutsideOfEventStream
+            let viewLoc = contentView.convert(clickLoc, from: nil)
+            picker.show(relativeTo: NSRect(origin: viewLoc, size: .zero), of: contentView, preferredEdge: .maxY)
         }
     }
     
@@ -458,5 +527,26 @@ public struct AvatarDetailView: View {
             onRenameRequested?(trimmed)
         }
         isEditingNameInline = false
+    }
+}
+
+// MARK: - Share Anchor Representable (attaches NSSharingServicePicker to button frame)
+private struct ShareAnchorRepresentable: NSViewRepresentable {
+    @Binding var anchorView: NSView?
+    
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            self.anchorView = view
+        }
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if self.anchorView !== nsView {
+            DispatchQueue.main.async {
+                self.anchorView = nsView
+            }
+        }
     }
 }

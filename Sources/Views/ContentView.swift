@@ -25,6 +25,11 @@ public struct ContentView: View {
     @State private var isNewMemoji: Bool = false
     @State private var toastMessage: String? = nil
     
+    // Sidebar collapse & full screen state
+    @State private var isSidebarCollapsed: Bool = false
+    @State private var isFullScreen: Bool = false
+    @State private var isHoveringFloatingSidebar: Bool = false
+    
     public init() {}
     
     public var selectedAvatarItem: AvatarItem? {
@@ -97,35 +102,87 @@ public struct ContentView: View {
     
     public var body: some View {
         HStack(spacing: 0) {
-            // Left Sidebar
-            SidebarView(
-                selectedAvatarId: selectedAvatarIdBinding,
-                activePoseName: $activePoseName,
-                currentTab: $currentTab,
-                viewMode: $viewMode,
-                userMemojis: userMemojis,
-                customMemojis: customMemojis,
-                builtinAnimojis: builtinAnimojis,
-                randomMemojis: randomMemojis,
-                avatarObjects: avatarObjects,
-                stickersForSelectedAvatar: stickersForCurrentAvatar(),
-                onAddNewMemoji: startCreatingNewMemoji,
-                onEditMemoji: startEditingMemoji,
-                onDuplicateMemoji: duplicateMemoji,
-                onDeleteCustomMemoji: deleteCustomMemoji,
-                onRenameMemoji: renameMemoji,
-                onRefreshRequested: reloadData,
-                onCopySticker: copyStickerToClipboard
-            )
-            .frame(width: 330)
-            
-            // Subtle vertical divider between sidebar and main area
-            Rectangle()
-                .fill(Color.primary.opacity(0.08))
-                .frame(width: 1)
+            // Left Sidebar (Collapsible)
+            if !isSidebarCollapsed {
+                SidebarView(
+                    selectedAvatarId: selectedAvatarIdBinding,
+                    activePoseName: $activePoseName,
+                    currentTab: $currentTab,
+                    viewMode: $viewMode,
+                    userMemojis: userMemojis,
+                    customMemojis: customMemojis,
+                    builtinAnimojis: builtinAnimojis,
+                    randomMemojis: randomMemojis,
+                    avatarObjects: avatarObjects,
+                    stickersForSelectedAvatar: stickersForCurrentAvatar(),
+                    onAddNewMemoji: startCreatingNewMemoji,
+                    onEditMemoji: startEditingMemoji,
+                    onDuplicateMemoji: duplicateMemoji,
+                    onDeleteCustomMemoji: deleteCustomMemoji,
+                    onRenameMemoji: renameMemoji,
+                    onRefreshRequested: reloadData,
+                    onCopySticker: copyStickerToClipboard,
+                    onToggleSidebar: {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                            isSidebarCollapsed.toggle()
+                        }
+                    }
+                )
+                .frame(width: 330)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .leading).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
+                
+                // Subtle vertical divider between sidebar and main area
+                Rectangle()
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(width: 1)
+                    .transition(.opacity)
+            }
             
             // Right Main Stage
             ZStack {
+                // Floating Expand Sidebar Button when collapsed
+                if isSidebarCollapsed {
+                    VStack {
+                        HStack {
+                            Button(action: {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                                    isSidebarCollapsed = false
+                                }
+                            }) {
+                                Image(systemName: "sidebar.leading")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.primary.opacity(0.85))
+                                    .frame(width: 32, height: 32)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.primary.opacity(isHoveringFloatingSidebar ? 0.2 : 0.08), lineWidth: 1)
+                                    )
+                                    .scaleEffect(isHoveringFloatingSidebar ? 1.05 : 1.0)
+                                    .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { h in isHoveringFloatingSidebar = h }
+                            .help("Show Sidebar (⌘\\)")
+                            
+                            Spacer()
+                        }
+                        .padding(.top, 18)
+                        .padding(.leading, 18)
+                        
+                        Spacer()
+                    }
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .leading).combined(with: .opacity),
+                        removal: .move(edge: .leading).combined(with: .opacity)
+                    ))
+                    .zIndex(60)
+                }
+                
                 if isLoading {
                     VStack(spacing: 14) {
                         ProgressView()
@@ -141,6 +198,7 @@ public struct ContentView: View {
                         avatarItem: current,
                         avatarObject: currentAvatarObject(for: current),
                         activePoseName: activePoseName,
+                        isFullScreen: isFullScreen,
                         onResetPoseAndCamera: {
                             activePoseName = nil
                         },
@@ -152,6 +210,9 @@ public struct ContentView: View {
                         },
                         onCopiedNotification: { msg in
                             showToast(msg)
+                        },
+                        onToggleFullScreen: {
+                            toggleFullScreen()
                         }
                     )
                 } else {
@@ -223,7 +284,7 @@ public struct ContentView: View {
             }
             .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 880, minHeight: 560)
+        .frame(minWidth: isSidebarCollapsed ? 520 : 880, minHeight: 560)
         .sheet(isPresented: $isShowingEditor) {
             if let avatar = editorTargetAvatar {
                 MemojiEditorView(
@@ -247,6 +308,32 @@ public struct ContentView: View {
                 AvatarKitBridge.shared.cancelPendingStickerRenders()
                 ensureAvatarLoaded(forId: id)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                isFullScreen = true
+                isSidebarCollapsed = true
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                isFullScreen = false
+                isSidebarCollapsed = false
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleSidebarRequested)) { _ in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                isSidebarCollapsed.toggle()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleFullScreenRequested)) { _ in
+            toggleFullScreen()
+        }
+    }
+    
+    private func toggleFullScreen() {
+        if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            window.toggleFullScreen(nil)
         }
     }
     
