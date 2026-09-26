@@ -360,7 +360,7 @@ public final class AvatarKitBridge {
     
     /// Smoothly transitions the 3D AVTView to a given sticker pose/expression,
     /// ensuring the camera rotation axis remains stable and upright.
-    public func applyStickerPose(named stickerName: String, to view: NSView, animojiNamed: String? = nil, duration: Double = 0.18) {
+    public func applyStickerPose(named stickerName: String, to view: NSView, animojiNamed: String? = nil, duration: Double = 0.25) {
         guard let cfg = stickerConfiguration(named: stickerName, animojiNamed: animojiNamed) else {
             resetToNeutralPose(on: view, duration: duration)
             return
@@ -383,7 +383,7 @@ public final class AvatarKitBridge {
     
     /// Smoothly transitions back to neutral pose, restores canonical frontal camera framing,
     /// and stabilizes the camera controller axis so future rotations remain upright.
-    public func resetToNeutralPose(on view: NSView, duration: Double = 0.18) {
+    public func resetToNeutralPose(on view: NSView, duration: Double = 0.25) {
         stabilizeCameraController(on: view)
         
         let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")

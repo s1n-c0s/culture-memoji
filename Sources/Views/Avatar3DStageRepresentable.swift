@@ -34,6 +34,14 @@ public final class StageViewController: ObservableObject {
     }
 }
 
+/// An NSImageView that passes all mouse and hit-test events through to underlying views,
+/// ensuring interactive 3D rotation and controls continue functioning uninterrupted.
+private final class PassthroughImageView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return nil
+    }
+}
+
 /// Wraps Apple's AVTView (3D interactive SceneKit/VFX viewport) for SwiftUI.
 public struct Avatar3DStageRepresentable: NSViewRepresentable {
     public let avatarId: String?
@@ -97,14 +105,14 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         context.coordinator.currentPose = activePoseName
         context.coordinator.lastMutationId = mutationId
         
-        // Apply initial pose after one runloop pass to allow the Metal scene to load
+        // Apply initial pose after one runloop pass with smooth transition animation
         if let pose = activePoseName {
             DispatchQueue.main.async {
                 AvatarKitBridge.shared.applyStickerPose(
                     named: pose,
                     to: avtView,
                     animojiNamed: isAnimoji ? animojiName : nil,
-                    duration: 0.0
+                    duration: 0.25
                 )
             }
         }
@@ -132,30 +140,76 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
             context.coordinator.currentAvatar = avatar
             context.coordinator.currentPose = activePoseName
             
+            // Clean up any existing fade overlay in flight
+            if let oldOverlay = context.coordinator.currentFadeOverlay {
+                oldOverlay.layer?.removeAllAnimations()
+                oldOverlay.removeFromSuperview()
+                context.coordinator.currentFadeOverlay = nil
+            }
+            
+            // Capture snapshot of previous avatar for smooth crossfade transition
+            var overlay: PassthroughImageView? = nil
+            let boundsSize = avtView.bounds.size
+            if boundsSize.width > 0 && boundsSize.height > 0,
+               let prevSnapshot = AvatarKitBridge.shared.snapshot(view: avtView, size: boundsSize) {
+                let imgView = PassthroughImageView(frame: avtView.bounds)
+                imgView.image = prevSnapshot
+                imgView.imageScaling = .scaleAxesIndependently
+                imgView.autoresizingMask = [.width, .height]
+                imgView.wantsLayer = true
+                imgView.alphaValue = 1.0
+                nsView.addSubview(imgView, positioned: .above, relativeTo: avtView)
+                context.coordinator.currentFadeOverlay = imgView
+                overlay = imgView
+            }
+            
             // Set the newly selected avatar instance (cleans previous puppet and restores default framing)
             AvatarKitBridge.shared.setAvatar(avatar, on: avtView, clone: clone)
             
-            // If there is an active emote, apply it cleanly to the new character
-            if let pose = activePoseName {
-                let targetId = avatarId
-                DispatchQueue.main.async {
-                    guard context.coordinator.currentAvatarId == targetId else { return }
+            // Always smoothly transition the new avatar into the pose or canonical neutral
+            let targetId = avatarId
+            DispatchQueue.main.async {
+                guard context.coordinator.currentAvatarId == targetId else { return }
+                if let pose = activePoseName {
                     AvatarKitBridge.shared.applyStickerPose(
                         named: pose,
                         to: avtView,
                         animojiNamed: isAnimoji ? animojiName : nil,
-                        duration: 0.0
+                        duration: 0.25
                     )
+                } else {
+                    AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.25)
                 }
-            } else {
-                AvatarKitBridge.shared.stabilizeCameraController(on: avtView)
+            }
+            
+            // Animate crossfade overlay fading out smoothly
+            if let activeOverlay = overlay {
+                let coordinator = context.coordinator
+                CATransaction.begin()
+                CATransaction.setAnimationDuration(0.25)
+                CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+                CATransaction.setCompletionBlock {
+                    activeOverlay.removeFromSuperview()
+                    if coordinator.currentFadeOverlay === activeOverlay {
+                        coordinator.currentFadeOverlay = nil
+                    }
+                }
+                activeOverlay.animator().alphaValue = 0.0
+                CATransaction.commit()
             }
         } else if context.coordinator.lastMutationId != mutationId {
             // Explicit stage reset / mutation requested (e.g. from Reset button)
             context.coordinator.lastMutationId = mutationId
             context.coordinator.currentPose = activePoseName
             if activePoseName == nil {
-                AvatarKitBridge.shared.resetCameraFraming(on: avtView)
+                AvatarKitBridge.shared.resetCameraFraming(on: avtView, duration: 0.25)
+            } else if let pose = activePoseName {
+                AvatarKitBridge.shared.applyStickerPose(
+                    named: pose,
+                    to: avtView,
+                    animojiNamed: isAnimoji ? animojiName : nil,
+                    duration: 0.25
+                )
             }
         } else if context.coordinator.currentPose != activePoseName {
             // Update pose when changed (including nil = clear back to neutral)
@@ -165,15 +219,17 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
                     named: pose,
                     to: avtView,
                     animojiNamed: isAnimoji ? animojiName : nil,
-                    duration: 0.18
+                    duration: 0.25
                 )
             } else {
-                AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.18)
+                AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.25)
             }
         }
     }
     
     public static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.currentFadeOverlay?.removeFromSuperview()
+        coordinator.currentFadeOverlay = nil
         coordinator.stageController?.avtView = nil
         coordinator.stageController = nil
         if let avtView = coordinator.avtView {
@@ -184,13 +240,15 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         }
     }
     
-    public class Coordinator {
+    @MainActor
+    public final class Coordinator {
         weak var stageController: StageViewController?
         var avtView: NSView?
         var currentAvatar: AnyObject?
         var currentAvatarId: String?
         var currentPose: String?
         var lastMutationId: UUID?
+        fileprivate var currentFadeOverlay: PassthroughImageView?
     }
 }
 
