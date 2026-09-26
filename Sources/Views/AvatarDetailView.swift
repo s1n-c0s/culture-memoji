@@ -194,6 +194,9 @@ public struct AvatarDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .copyCurrentAvatarRequested)) { _ in
             copyAvatarToClipboard()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .resetCameraAndPoseRequested)) { _ in
+            handleReset()
+        }
     }
     
     // MARK: - Top Right Bar (Reset & Camera Icons)
@@ -236,6 +239,7 @@ public struct AvatarDetailView: View {
                         .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
+                .keyboardShortcut("0", modifiers: .command)
                 .help("Reset camera framing & neutral pose (⌘0)")
                 
                 // Live Camera Face-Tracking Toggle Button

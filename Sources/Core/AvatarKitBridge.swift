@@ -397,9 +397,106 @@ public final class AvatarKitBridge {
         })
     }
     
-    /// Explicitly resets the camera framing, position, and orientation back to the canonical front view
-    public func resetCameraFraming(on view: NSView) {
-        resetToNeutralPose(on: view, duration: 0.25)
+    /// Smoothly executes scene/node property changes inside a VFXTransaction or SCNTransaction
+    private func perform3DTransaction(duration: Double, actions: () -> Void) {
+        let transCls: AnyObject.Type? = NSClassFromString("VFXTransaction") ?? NSClassFromString("SCNTransaction")
+        if let cls = transCls {
+            let beginSel = NSSelectorFromString("begin")
+            let durSel = NSSelectorFromString("setAnimationDuration:")
+            let commitSel = NSSelectorFromString("commit")
+            
+            typealias VoidFunc = @convention(c) (AnyObject, Selector) -> Void
+            typealias DurFunc = @convention(c) (AnyObject, Selector, Double) -> Void
+            
+            if let mBegin = class_getClassMethod(cls, beginSel),
+               let mDur = class_getClassMethod(cls, durSel),
+               let mCommit = class_getClassMethod(cls, commitSel) {
+                unsafeBitCast(method_getImplementation(mBegin), to: VoidFunc.self)(cls as AnyObject, beginSel)
+                unsafeBitCast(method_getImplementation(mDur), to: DurFunc.self)(cls as AnyObject, durSel, duration)
+                actions()
+                unsafeBitCast(method_getImplementation(mCommit), to: VoidFunc.self)(cls as AnyObject, commitSel)
+                return
+            }
+        }
+        actions()
+    }
+    
+    /// Centers the camera node, target, FOV, and stabilizes orbit controls back to canonical front-view
+    public func applyCanonicalCameraFraming(to view: NSView, animated: Bool = true, duration: Double = 0.25) {
+        let updateAction = {
+            let camCtrlSel = NSSelectorFromString("defaultCameraController")
+            if view.responds(to: camCtrlSel),
+               let camCtrl = (view as AnyObject).perform(camCtrlSel)?.takeUnretainedValue() {
+                (camCtrl as AnyObject).setValue(false, forKey: "automaticTarget")
+                (camCtrl as AnyObject).setValue(false, forKey: "isTargetFromHitTest")
+                _ = (camCtrl as AnyObject).perform(NSSelectorFromString("stopInertia"))
+                _ = (camCtrl as AnyObject).perform(NSSelectorFromString("clearRoll"))
+                _ = (camCtrl as AnyObject).perform(NSSelectorFromString("_resetOrientationState"))
+                
+                let targetSel = NSSelectorFromString("setTarget:")
+                if let mTarget = class_getInstanceMethod(type(of: camCtrl), targetSel) {
+                    typealias VecFunc = @convention(c) (AnyObject, Selector, SIMD3<Float>) -> Void
+                    unsafeBitCast(method_getImplementation(mTarget), to: VecFunc.self)(camCtrl, targetSel, SIMD3<Float>(0, 0, 0))
+                }
+            }
+            
+            let povSel = NSSelectorFromString("pointOfView")
+            if let pov = (view as AnyObject).perform(povSel)?.takeUnretainedValue() {
+                typealias VecFunc = @convention(c) (AnyObject, Selector, SIMD3<Float>) -> Void
+                typealias Rot4Func = @convention(c) (AnyObject, Selector, SIMD4<Float>) -> Void
+                
+                let posSel = NSSelectorFromString("setPosition:")
+                if let mPos = class_getInstanceMethod(type(of: pov), posSel) {
+                    unsafeBitCast(method_getImplementation(mPos), to: VecFunc.self)(pov, posSel, SIMD3<Float>(0, 15, 59.59))
+                }
+                
+                let rotSel = NSSelectorFromString("setRotation:")
+                if let mRot = class_getInstanceMethod(type(of: pov), rotSel) {
+                    unsafeBitCast(method_getImplementation(mRot), to: Rot4Func.self)(pov, rotSel, SIMD4<Float>(-1.0, 0.0, 0.0, 0.06951647))
+                }
+                
+                let camSel = NSSelectorFromString("camera")
+                if let cam = (pov as AnyObject).perform(camSel)?.takeUnretainedValue() {
+                    (cam as AnyObject).setValue(46.0, forKey: "fieldOfView")
+                }
+            }
+            
+            // Re-stabilize orientation state against the newly applied camera transform
+            if view.responds(to: camCtrlSel),
+               let camCtrl = (view as AnyObject).perform(camCtrlSel)?.takeUnretainedValue() {
+                _ = (camCtrl as AnyObject).perform(NSSelectorFromString("stopInertia"))
+                _ = (camCtrl as AnyObject).perform(NSSelectorFromString("clearRoll"))
+                _ = (camCtrl as AnyObject).perform(NSSelectorFromString("_resetOrientationState"))
+            }
+        }
+        
+        if animated {
+            perform3DTransaction(duration: duration) {
+                updateAction()
+            }
+        } else {
+            updateAction()
+        }
+    }
+    
+    /// Explicitly resets the camera framing, position, rotation, FOV, and orbit target back to canonical center,
+    /// and smoothly transitions any active emote/sticker expression back to neutral pose.
+    public func resetCameraFraming(on view: NSView, duration: Double = 0.25) {
+        // 1. Immediately apply camera centering for smooth visual feedback from current position
+        applyCanonicalCameraFraming(to: view, animated: true, duration: duration)
+        
+        // 2. Transition sticker pose/accessories back to neutral
+        let transSel = NSSelectorFromString("transitionToStickerConfiguration:duration:completionHandler:")
+        if view.responds(to: transSel),
+           let method = class_getInstanceMethod(type(of: view), transSel) {
+            typealias TransFunc = @convention(c) (AnyObject, Selector, AnyObject?, Double, (@convention(block) () -> Void)?) -> Void
+            let callable = unsafeBitCast(method_getImplementation(method), to: TransFunc.self)
+            callable(view, transSel, nil, duration, { [weak self] in
+                // 3. Once sticker transition completes and original pointOfView is restored,
+                // re-apply canonical framing to the restored camera node
+                self?.applyCanonicalCameraFraming(to: view, animated: false)
+            })
+        }
     }
     
     // MARK: - Snapshots & Rendering

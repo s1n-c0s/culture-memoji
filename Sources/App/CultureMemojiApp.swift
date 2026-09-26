@@ -3,6 +3,7 @@ import AppKit
 
 public extension Notification.Name {
     static let copyCurrentAvatarRequested = Notification.Name("copyCurrentAvatarRequested")
+    static let resetCameraAndPoseRequested = Notification.Name("resetCameraAndPoseRequested")
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -55,6 +56,13 @@ public struct CultureMemojiApp: App {
                     NotificationCenter.default.post(name: .copyCurrentAvatarRequested, object: nil)
                 }
                 .keyboardShortcut("c", modifiers: .control)
+            }
+            
+            CommandGroup(after: .sidebar) {
+                Button("Reset Camera Framing & Pose") {
+                    NotificationCenter.default.post(name: .resetCameraAndPoseRequested, object: nil)
+                }
+                .keyboardShortcut("0", modifiers: .command)
             }
             
             CommandGroup(replacing: .help) {

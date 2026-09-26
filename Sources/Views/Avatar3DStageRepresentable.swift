@@ -149,6 +149,13 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
             } else {
                 AvatarKitBridge.shared.stabilizeCameraController(on: avtView)
             }
+        } else if context.coordinator.lastMutationId != mutationId {
+            // Explicit stage reset / mutation requested (e.g. from Reset button)
+            context.coordinator.lastMutationId = mutationId
+            context.coordinator.currentPose = activePoseName
+            if activePoseName == nil {
+                AvatarKitBridge.shared.resetCameraFraming(on: avtView)
+            }
         } else if context.coordinator.currentPose != activePoseName {
             // Update pose when changed (including nil = clear back to neutral)
             context.coordinator.currentPose = activePoseName
