@@ -401,7 +401,7 @@ public struct AvatarDetailView: View {
     }
     
     private func copyAvatarToClipboard() {
-        var image: NSImage? = stageController.captureSnapshot(preferredSize: CGSize(width: 1024, height: 1024))
+        var image: NSImage? = stageController.captureSnapshot()
         
         if image == nil, let avatar = avatarObject {
             image = AvatarKitBridge.shared.snapshot(
@@ -412,8 +412,9 @@ public struct AvatarDetailView: View {
             )
         }
         
-        guard let finalImage = image else { return }
+        guard let rawImage = image else { return }
         
+        let finalImage = StickerExportManager.shared.trimTransparentMargins(image: rawImage)
         StickerExportManager.shared.copyToClipboard(image: finalImage)
         
         withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
@@ -430,7 +431,7 @@ public struct AvatarDetailView: View {
     }
     
     private func shareAvatar() {
-        var image: NSImage? = stageController.captureSnapshot(preferredSize: CGSize(width: 1024, height: 1024))
+        var image: NSImage? = stageController.captureSnapshot()
         if image == nil, let avatar = avatarObject {
             image = AvatarKitBridge.shared.snapshot(
                 avatar: avatar,
@@ -439,8 +440,9 @@ public struct AvatarDetailView: View {
                 size: CGSize(width: 1024, height: 1024)
             )
         }
-        guard let snap = image,
-              let tempURL = StickerExportManager.shared.createTemporaryFile(for: snap, filename: "\(avatarItem.displayName)_Snapshot") else {
+        guard let rawImage = image else { return }
+        let snap = StickerExportManager.shared.trimTransparentMargins(image: rawImage)
+        guard let tempURL = StickerExportManager.shared.createTemporaryFile(for: snap, filename: "\(avatarItem.displayName)_Snapshot") else {
             return
         }
         

@@ -694,6 +694,13 @@ public final class AvatarKitBridge {
         size: CGSize = CGSize(width: 512, height: 512)
     ) -> NSImage? {
         guard let pose = poseName, !pose.isEmpty, pose != "neutral" else {
+            // Render frontal neutral snapshot via offscreen AVTView with canonical stage framing
+            if let offscreenView = createAVTView(frame: NSRect(origin: .zero, size: size), avatar: avatar) {
+                applyCanonicalCameraFraming(to: offscreenView, animated: false)
+                if let snap = snapshot(view: offscreenView, size: size) {
+                    return snap
+                }
+            }
             return snapshot(avatar: avatar, size: size, scale: 2.0)
         }
         

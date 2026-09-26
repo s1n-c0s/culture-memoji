@@ -63,18 +63,97 @@ public final class StickerExportManager {
     
     private init() {}
     
+    /// Trims surrounding empty transparent pixels while maintaining comfortable padding around the character content.
+    public func trimTransparentMargins(image: NSImage, paddingFraction: CGFloat = 0.05) -> NSImage {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return image
+        }
+        
+        let width = cgImage.width
+        let height = cgImage.height
+        guard let data = cgImage.dataProvider?.data,
+              let ptr = CFDataGetBytePtr(data) else {
+            return image
+        }
+        
+        let bytesPerRow = cgImage.bytesPerRow
+        let bytesPerPixel = cgImage.bitsPerPixel / 8
+        guard bytesPerPixel >= 4 else { return image }
+        
+        let alphaInfo = cgImage.alphaInfo
+        let isAlphaFirst = (alphaInfo == .premultipliedFirst || alphaInfo == .first || alphaInfo == .noneSkipFirst)
+        let isLittleEndian = cgImage.bitmapInfo.contains(.byteOrder32Little)
+        
+        let alphaOffset: Int
+        if isLittleEndian {
+            alphaOffset = isAlphaFirst ? 3 : 0
+        } else {
+            alphaOffset = isAlphaFirst ? 0 : 3
+        }
+        
+        var minX = width, maxX = 0, minY = height, maxY = 0
+        var foundContent = false
+        
+        for y in 0..<height {
+            let rowStart = y * bytesPerRow
+            for x in 0..<width {
+                let offset = rowStart + x * bytesPerPixel
+                let a = ptr[offset + alphaOffset]
+                if a > 8 { // Threshold to ignore subtle anti-aliasing edge fringe
+                    if x < minX { minX = x }
+                    if x > maxX { maxX = x }
+                    if y < minY { minY = y }
+                    if y > maxY { maxY = y }
+                    foundContent = true
+                }
+            }
+        }
+        
+        guard foundContent, maxX >= minX, maxY >= minY else {
+            return image
+        }
+        
+        let contentW = maxX - minX + 1
+        let contentH = maxY - minY + 1
+        let pad = Int(Double(max(contentW, contentH)) * Double(paddingFraction))
+        
+        let cropX = max(0, minX - pad)
+        let cropY = max(0, minY - pad)
+        let cropW = min(width - cropX, contentW + pad * 2)
+        let cropH = min(height - cropY, contentH + pad * 2)
+        
+        let cropRect = CGRect(x: cropX, y: cropY, width: cropW, height: cropH)
+        guard let croppedCG = cgImage.cropping(to: cropRect) else {
+            return image
+        }
+        
+        let rep = NSBitmapImageRep(cgImage: croppedCG)
+        rep.size = NSSize(width: CGFloat(cropW) / 2.0, height: CGFloat(cropH) / 2.0)
+        let trimmedImage = NSImage(size: rep.size)
+        trimmedImage.addRepresentation(rep)
+        return trimmedImage
+    }
+    
     /// Copies an image to the general system clipboard with transparent PNG and TIFF support
     public func copyToClipboard(image: NSImage) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.writeObjects([image])
         
-        if let tiffData = image.tiffRepresentation {
-            pasteboard.setData(tiffData, forType: .tiff)
-            if let rep = NSBitmapImageRep(data: tiffData),
-               let pngData = rep.representation(using: .png, properties: [:]) {
+        // Generate high-fidelity PNG data
+        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            let rep = NSBitmapImageRep(cgImage: cgImage)
+            if let pngData = rep.representation(using: .png, properties: [:]) {
                 pasteboard.setData(pngData, forType: .png)
             }
+        } else if let tiffData = image.tiffRepresentation,
+                  let rep = NSBitmapImageRep(data: tiffData),
+                  let pngData = rep.representation(using: .png, properties: [:]) {
+            pasteboard.setData(pngData, forType: .png)
+        }
+        
+        if let tiffData = image.tiffRepresentation {
+            pasteboard.setData(tiffData, forType: .tiff)
         }
     }
     

@@ -18,8 +18,9 @@ public final class StageViewController: ObservableObject {
         } else {
             let boundsSize = view.bounds.size
             if boundsSize.width > 0 && boundsSize.height > 0 {
-                // Crisp 2x retina snapshot (at least 1024px for sharp export)
-                let scale = max(2.0, 1024.0 / max(boundsSize.width, boundsSize.height))
+                // Crisp retina snapshot preserving exact viewport aspect ratio
+                let minDim = min(boundsSize.width, boundsSize.height)
+                let scale = max(2.0, 1024.0 / minDim)
                 targetSize = CGSize(
                     width: (boundsSize.width * scale).rounded(),
                     height: (boundsSize.height * scale).rounded()
