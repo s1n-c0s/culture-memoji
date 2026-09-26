@@ -191,6 +191,9 @@ public struct AvatarDetailView: View {
                 Spacer()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .copyCurrentAvatarRequested)) { _ in
+            copyAvatarToClipboard()
+        }
     }
     
     // MARK: - Top Right Bar (Reset & Camera Icons)
@@ -341,8 +344,17 @@ public struct AvatarDetailView: View {
                 .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.2 : 0.04), radius: 6, x: 0, y: 2)
             }
             .buttonStyle(.plain)
+            .keyboardShortcut("c", modifiers: .command)
+            .background(
+                Button(action: copyAvatarToClipboard) {
+                    EmptyView()
+                }
+                .keyboardShortcut("c", modifiers: .control)
+                .opacity(0)
+                .allowsHitTesting(false)
+            )
             .onHover { h in isHoveringCopy = h }
-            .help("Copy transparent PNG to clipboard (⌘C)")
+            .help("Copy transparent PNG to clipboard (⌃C or ⌘C)")
             
             // [ 📤 ] Share / Export Button
             Button(action: shareAvatar) {
