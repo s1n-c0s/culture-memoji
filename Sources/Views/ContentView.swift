@@ -50,11 +50,27 @@ public struct ContentView: View {
         return nil
     }
     
+    private var selectedAvatarIdBinding: Binding<String?> {
+        Binding(
+            get: { selectedAvatarId },
+            set: { newId in
+                if let id = newId {
+                    activePoseName = nil
+                    AvatarKitBridge.shared.cancelPendingStickerRenders()
+                    ensureAvatarLoaded(forId: id)
+                    selectedAvatarId = id
+                } else {
+                    selectedAvatarId = nil
+                }
+            }
+        )
+    }
+    
     public var body: some View {
         HStack(spacing: 0) {
             // Left Sidebar
             SidebarView(
-                selectedAvatarId: $selectedAvatarId,
+                selectedAvatarId: selectedAvatarIdBinding,
                 activePoseName: $activePoseName,
                 currentTab: $currentTab,
                 viewMode: $viewMode,
@@ -109,7 +125,6 @@ public struct ContentView: View {
                             showToast(msg)
                         }
                     )
-                    .id(current.id)
                 } else {
                     VStack(spacing: 16) {
                         ZStack {
@@ -194,6 +209,7 @@ public struct ContentView: View {
         .onChange(of: selectedAvatarId) { _, newId in
             if let id = newId {
                 activePoseName = nil
+                AvatarKitBridge.shared.cancelPendingStickerRenders()
                 ensureAvatarLoaded(forId: id)
             }
         }
@@ -224,15 +240,24 @@ public struct ContentView: View {
         }
         
         // Select first available avatar if nothing selected yet
-        if selectedAvatarId == nil {
-            selectedAvatarId = customs.first?.id ?? dbUsers.first?.id ?? builtinAnimojis.first?.id
+        let firstId = selectedAvatarId ?? customs.first?.id ?? dbUsers.first?.id ?? builtinAnimojis.first?.id
+        selectedAvatarId = firstId
+        
+        // Load the first avatar and stickers synchronously so the main stage renders on frame 0
+        if let id = firstId {
+            ensureAvatarLoaded(forId: id)
         }
         
         isLoading = false
         
-        // Load avatar data for the selected avatar
-        if let firstId = selectedAvatarId {
-            ensureAvatarLoaded(forId: firstId)
+        // Background pre-warm all remaining characters and their sticker lists
+        let allItems = customs + dbUsers + self.builtinAnimojis
+        Task(priority: .utility) {
+            for item in allItems where item.id != firstId {
+                if Task.isCancelled { break }
+                ensureAvatarLoaded(forId: item.id)
+                await Task.yield()
+            }
         }
     }
     
@@ -242,6 +267,7 @@ public struct ContentView: View {
         avatarObjects.removeAll()
         avatarStickers.removeAll()
         ThumbnailCache.shared.clear()
+        AvatarKitBridge.shared.cancelPendingStickerRenders()
         Task {
             await loadInitialData()
             if let id = currentId, !id.isEmpty {
@@ -263,30 +289,8 @@ public struct ContentView: View {
         
         // 1. Load 3D AVTAvatar instance if not already cached
         if avatarObjects[id] == nil {
-            switch item.sourceType {
-            case .customMemoji:
-                if let data = item.rawData,
-                   let avatar = AvatarKitBridge.shared.loadAvatar(fromData: data) {
-                    avatarObjects[id] = avatar
-                } else if let neutral = MemojiCustomizer.shared.createNeutralMemoji() {
-                    avatarObjects[id] = neutral
-                }
-                
-            case .userMemoji:
-                if let data = item.rawData,
-                   let avatar = AvatarKitBridge.shared.loadAvatar(fromData: data) {
-                    avatarObjects[id] = avatar
-                }
-                
-            case .builtinAnimoji(let name):
-                if let animoji = AvatarKitBridge.shared.loadAnimoji(named: name) {
-                    avatarObjects[id] = animoji
-                }
-                
-            case .randomMemoji:
-                if let rand = AvatarKitBridge.shared.createRandomMemoji() {
-                    avatarObjects[id] = rand
-                }
+            if let obj = Self.loadAvatarObject(for: item) {
+                avatarObjects[id] = obj
             }
         }
         
@@ -298,48 +302,66 @@ public struct ContentView: View {
     
     @MainActor
     private func loadStickers(for item: AvatarItem) {
+        let stickers = Self.loadStickerItems(for: item)
+        avatarStickers[item.id] = stickers
+        ThumbnailCache.shared.prewarmEmoteThumbnails(stickers: stickers)
+    }
+    
+    public static func loadAvatarObject(for item: AvatarItem) -> AnyObject? {
+        switch item.sourceType {
+        case .customMemoji:
+            if let data = item.rawData,
+               let avatar = AvatarKitBridge.shared.loadAvatar(fromData: data) {
+                return avatar
+            } else if let neutral = MemojiCustomizer.shared.createNeutralMemoji() {
+                return neutral
+            }
+            
+        case .userMemoji:
+            if let data = item.rawData,
+               let avatar = AvatarKitBridge.shared.loadAvatar(fromData: data) {
+                return avatar
+            }
+            
+        case .builtinAnimoji(let name):
+            if let animoji = AvatarKitBridge.shared.loadAnimoji(named: name) {
+                return animoji
+            }
+            
+        case .randomMemoji:
+            if let rand = AvatarKitBridge.shared.createRandomMemoji() {
+                return rand
+            }
+        }
+        return nil
+    }
+    
+    public static func loadStickerItems(for item: AvatarItem) -> [StickerItem] {
         let allNames: [String]
         let diskStickers: [StickerItem]
-        let animojiName: String?
         
         switch item.sourceType {
         case .customMemoji:
-            animojiName = nil
             allNames = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
             diskStickers = AvatarDatabaseReader.shared.findAppCachedStickers(forAvatarId: item.id)
             
         case .userMemoji(let uuid):
-            animojiName = nil
             allNames = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
             diskStickers = AvatarDatabaseReader.shared.findCachedStickers(forUUID: uuid)
             
         case .builtinAnimoji(let name):
-            animojiName = name
             allNames = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: name)
             diskStickers = AvatarDatabaseReader.shared.findCachedStickers(forAnimojiNamed: name)
             
         case .randomMemoji:
-            animojiName = nil
             allNames = AvatarKitBridge.shared.availableStickerNames(forAnimojiNamed: nil)
             diskStickers = AvatarDatabaseReader.shared.findAppCachedStickers(forAvatarId: item.id)
         }
         
-        let merged = mergeStickerItems(diskStickers: diskStickers, allNames: allNames, prefix: item.id)
-        avatarStickers[item.id] = merged
-        
-        // 1. Pre-warm sticker configurations in background so previewing poses is instant
-        AvatarKitBridge.shared.prewarmStickerConfigurations(forAnimojiNamed: animojiName, stickerNames: allNames)
-        
-        // 2. Pre-warm top thumbnails in background so switching to Emote tab is instant
-        ThumbnailCache.shared.prewarmEmoteThumbnails(
-            stickers: merged,
-            avatarObject: avatarObjects[item.id],
-            isAnimoji: animojiName != nil,
-            animojiName: animojiName
-        )
+        return mergeStickerItems(diskStickers: diskStickers, allNames: allNames, prefix: item.id)
     }
     
-    private func mergeStickerItems(diskStickers: [StickerItem], allNames: [String], prefix: String) -> [StickerItem] {
+    public static func mergeStickerItems(diskStickers: [StickerItem], allNames: [String], prefix: String) -> [StickerItem] {
         var result: [StickerItem] = []
         var seenNames = Set<String>()
         

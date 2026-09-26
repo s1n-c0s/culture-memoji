@@ -349,9 +349,11 @@ public final class AvatarKitBridge {
     
     /// Pre-warms sticker configurations in background so switching poses is completely lag-free
     public func prewarmStickerConfigurations(forAnimojiNamed name: String?, stickerNames: [String]) {
-        Task(priority: .utility) { @MainActor [weak self] in
+        Task(priority: .utility) { [weak self] in
             for stickerName in stickerNames.prefix(35) {
+                if Task.isCancelled { break }
                 _ = self?.stickerConfiguration(named: stickerName, animojiNamed: name)
+                await Task.yield()
             }
         }
     }
@@ -486,6 +488,12 @@ public final class AvatarKitBridge {
     // Serial task chain to serialize AVTStickerGenerator operations and prevent GPU context collisions
     private var stickerRenderChain: Task<NSImage?, Never>?
 
+    /// Immediately cancels any in-flight background sticker render queue (e.g. when user switches character)
+    public func cancelPendingStickerRenders() {
+        stickerRenderChain?.cancel()
+        stickerRenderChain = nil
+    }
+
     /// Asynchronously generates a high-resolution posed sticker for the given avatar model.
     /// Uses Apple's native AVTStickerGenerator so expressions, morphers, 3D props (birds, stars, clouds),
     /// and tailored camera framing are rendered with 100% fidelity matching the current model.
@@ -508,10 +516,12 @@ public final class AvatarKitBridge {
             return snapshot(avatar: avatar, size: CGSize(width: 320, height: 320), scale: scale)
         }
         
-        // Serialize execution so multiple simultaneous thumbnail renders don't choke the Metal pipeline
+        // Serialize execution with utility priority and cancellation support
         let prev = stickerRenderChain
-        let currentTask = Task { @MainActor [weak self] () -> NSImage? in
+        let currentTask = Task(priority: .utility) { [weak self] () -> NSImage? in
             _ = await prev?.value
+            if Task.isCancelled { return nil }
+            await Task.yield()
             guard let self = self else { return nil }
             return await self.executeGenerateSticker(
                 avatar: avatar,
@@ -524,13 +534,13 @@ public final class AvatarKitBridge {
         return await currentTask.value
     }
     
-    @MainActor
     private func executeGenerateSticker(
         avatar: AnyObject,
         cfg: AnyObject,
         cacheKey: NSString,
         scale: CGFloat
     ) async -> NSImage? {
+        if Task.isCancelled { return nil }
         if let cached = posedStickerCache.object(forKey: cacheKey) {
             return cached
         }

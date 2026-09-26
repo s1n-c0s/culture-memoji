@@ -177,9 +177,7 @@ public struct SidebarView: View {
             HStack(spacing: 4) {
                 // Character tab button
                 Button(action: {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                        currentTab = .character
-                    }
+                    currentTab = .character
                 }) {
                     HStack(spacing: 7) {
                         Image(systemName: "person.crop.circle.fill")
@@ -201,17 +199,7 @@ public struct SidebarView: View {
                 
                 // Emote tab button
                 Button(action: {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                        currentTab = .emote
-                    }
-                    if let id = selectedAvatarId {
-                        ThumbnailCache.shared.prewarmEmoteThumbnails(
-                            stickers: filteredEmotes,
-                            avatarObject: avatarObjects[id],
-                            isAnimoji: isAnimoji,
-                            animojiName: animojiName
-                        )
-                    }
+                    currentTab = .emote
                 }) {
                     HStack(spacing: 7) {
                         Image(systemName: "sparkles")
@@ -231,6 +219,7 @@ public struct SidebarView: View {
                 }
                 .buttonStyle(.plain)
             }
+            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: currentTab)
             .padding(3)
             .background(
                 RoundedRectangle(cornerRadius: 10)

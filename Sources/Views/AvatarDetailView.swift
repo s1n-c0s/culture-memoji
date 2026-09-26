@@ -124,7 +124,7 @@ public struct AvatarDetailView: View {
                     activePoseName: activePoseName,
                     isAnimoji: isAnimoji,
                     animojiName: animojiName,
-                    clone: true,
+                    clone: false,
                     mutationId: stageMutationId,
                     stageController: stageController
                 )

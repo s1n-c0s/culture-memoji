@@ -38,6 +38,7 @@ public struct CharacterCardView: View {
         self.onDuplicate = onDuplicate
         self.onDelete = onDelete
         self.onRename = onRename
+        self._thumbnail = State(initialValue: ThumbnailCache.shared.cachedImage(forKey: "avatar_\(item.id)"))
     }
     
     public var body: some View {
@@ -163,7 +164,9 @@ public struct CharacterCardView: View {
             }
         }
         .task(id: item.id) {
-            thumbnail = await ThumbnailCache.shared.getThumbnail(for: item, avatarObject: avatarObject)
+            if thumbnail == nil {
+                thumbnail = await ThumbnailCache.shared.getThumbnail(for: item, avatarObject: avatarObject)
+            }
         }
     }
 }
@@ -196,6 +199,7 @@ public struct CharacterListRowView: View {
         self.onSelect = onSelect
         self.onToggleFavorite = onToggleFavorite
         self.onEdit = onEdit
+        self._thumbnail = State(initialValue: ThumbnailCache.shared.cachedImage(forKey: "avatar_\(item.id)"))
     }
     
     public var body: some View {
@@ -265,7 +269,9 @@ public struct CharacterListRowView: View {
         .buttonStyle(.plain)
         .onHover { h in isHovered = h }
         .task(id: item.id) {
-            thumbnail = await ThumbnailCache.shared.getThumbnail(for: item, avatarObject: avatarObject)
+            if thumbnail == nil {
+                thumbnail = await ThumbnailCache.shared.getThumbnail(for: item, avatarObject: avatarObject)
+            }
         }
     }
     

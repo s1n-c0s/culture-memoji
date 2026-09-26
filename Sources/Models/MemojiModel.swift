@@ -8,7 +8,7 @@ public enum AvatarSourceType: Hashable, Sendable {
     case randomMemoji(seed: UUID)
 }
 
-public struct AvatarItem: Identifiable, Hashable {
+public struct AvatarItem: Identifiable, Hashable, Sendable {
     public let id: String
     public var displayName: String
     public let sourceType: AvatarSourceType
@@ -46,7 +46,7 @@ public struct AvatarItem: Identifiable, Hashable {
     }
 }
 
-public enum StickerCategory: String, CaseIterable, Identifiable {
+public enum StickerCategory: String, CaseIterable, Identifiable, Sendable {
     case all = "All"
     case expressions = "Expressions"
     case gestures = "Gestures"
@@ -66,7 +66,7 @@ public enum StickerCategory: String, CaseIterable, Identifiable {
     }
 }
 
-public struct StickerItem: Identifiable, Hashable {
+public struct StickerItem: Identifiable, Hashable, Sendable {
     public let id: String
     public let name: String
     public let localizedTitle: String

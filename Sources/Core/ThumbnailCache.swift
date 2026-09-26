@@ -1,8 +1,7 @@
 import Foundation
 import AppKit
 
-@MainActor
-public final class ThumbnailCache: ObservableObject {
+public final class ThumbnailCache: @unchecked Sendable {
     public static let shared = ThumbnailCache()
     
     private let cache = NSCache<NSString, NSImage>()
@@ -36,6 +35,7 @@ public final class ThumbnailCache: ObservableObject {
     }
     
     /// Loads or generates a thumbnail for an avatar
+    @MainActor
     public func getThumbnail(for item: AvatarItem, avatarObject: AnyObject?) async -> NSImage? {
         let key = "avatar_\(item.id)"
         if let cached = cache.object(forKey: key as NSString) {
@@ -94,6 +94,7 @@ public final class ThumbnailCache: ObservableObject {
     }
     
     /// Loads or generates a sticker thumbnail for an emote with persistent disk caching
+    @MainActor
     public func getEmoteThumbnail(
         sticker: StickerItem,
         avatarObject: AnyObject?,
@@ -139,21 +140,28 @@ public final class ThumbnailCache: ObservableObject {
         return nil
     }
     
-    /// Pre-warms the first batch of emote thumbnails in the background
-    public func prewarmEmoteThumbnails(
-        stickers: [StickerItem],
-        avatarObject: AnyObject?,
-        isAnimoji: Bool,
-        animojiName: String?
-    ) {
-        Task {
-            for sticker in stickers.prefix(16) {
-                _ = await getEmoteThumbnail(
-                    sticker: sticker,
-                    avatarObject: avatarObject,
-                    isAnimoji: isAnimoji,
-                    animojiName: animojiName
-                )
+    /// Pre-warms already-cached or disk stickers in the background (zero GPU contention, zero main thread block)
+    public func prewarmEmoteThumbnails(stickers: [StickerItem]) {
+        let dir = diskCacheDirectory
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self = self else { return }
+            for sticker in stickers.prefix(35) {
+                if Task.isCancelled { break }
+                let key = "emote_\(sticker.id)"
+                if self.cachedImage(forKey: key) != nil { continue }
+                
+                // 1. Check local file URL
+                if let url = sticker.localFileURL, let img = NSImage(contentsOf: url) {
+                    self.setImage(img, forKey: key)
+                    continue
+                }
+                
+                // 2. Check CultureMemoji persistent disk cache
+                let diskURL = dir.appendingPathComponent("\(sticker.id).png")
+                if FileManager.default.fileExists(atPath: diskURL.path), let img = NSImage(contentsOf: diskURL) {
+                    self.setImage(img, forKey: key)
+                    continue
+                }
             }
         }
     }

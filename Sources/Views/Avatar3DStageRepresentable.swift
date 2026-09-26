@@ -123,18 +123,8 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         // Update avatar only when the actual object reference changes
         if context.coordinator.currentAvatar !== avatar {
             context.coordinator.currentAvatar = avatar
+            context.coordinator.currentPose = activePoseName
             AvatarKitBridge.shared.setAvatar(avatar, on: avtView, clone: clone)
-        }
-        
-        // Trigger visual redraw if mutationId changed (e.g. preset or color edited, or randomized)
-        if let mid = mutationId, context.coordinator.lastMutationId != mid {
-            context.coordinator.lastMutationId = mid
-            if let avatar = avatar {
-                AvatarKitBridge.shared.setAvatar(avatar, on: avtView, clone: clone)
-            }
-            AvatarKitBridge.shared.notifyAvatarDidChange(on: avtView)
-            
-            // Re-apply active pose to freshly updated model
             if let pose = activePoseName {
                 AvatarKitBridge.shared.applyStickerPose(
                     named: pose,
@@ -142,11 +132,11 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
                     animojiNamed: isAnimoji ? animojiName : nil,
                     duration: 0.0
                 )
+            } else {
+                AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.0)
             }
-        }
-        
-        // Update pose when changed (including nil = clear back to neutral)
-        if context.coordinator.currentPose != activePoseName {
+        } else if context.coordinator.currentPose != activePoseName {
+            // Update pose when changed (including nil = clear back to neutral)
             context.coordinator.currentPose = activePoseName
             if let pose = activePoseName {
                 AvatarKitBridge.shared.applyStickerPose(
