@@ -362,7 +362,8 @@ public final class AvatarKitBridge {
     /// ensuring the camera rotation axis remains stable and upright.
     public func applyStickerPose(named stickerName: String, to view: NSView, animojiNamed: String? = nil, duration: Double = 0.18) {
         guard let cfg = stickerConfiguration(named: stickerName, animojiNamed: animojiNamed) else {
-            return // Pose not found — silently skip to avoid crash
+            resetToNeutralPose(on: view, duration: duration)
+            return
         }
         
         // Stabilize camera controller before transition begins to halt any ongoing drags/inertia
@@ -474,10 +475,11 @@ public final class AvatarKitBridge {
         guard (genCls as AnyObject).responds(to: allocSel),
               let uninit = (genCls as AnyObject).perform(allocSel)?.takeUnretainedValue() else { return nil }
         
+        let genAvatar = cloneAvatar(avatar) ?? avatar
         let initSel = NSSelectorFromString("initWithAvatar:")
         guard let initMethod = class_getInstanceMethod(genCls, initSel) else { return nil }
         typealias InitFunc = @convention(c) (AnyObject, Selector, AnyObject) -> AnyObject?
-        guard let gen = unsafeBitCast(method_getImplementation(initMethod), to: InitFunc.self)(uninit, initSel, avatar) else {
+        guard let gen = unsafeBitCast(method_getImplementation(initMethod), to: InitFunc.self)(uninit, initSel, genAvatar) else {
             return nil
         }
         

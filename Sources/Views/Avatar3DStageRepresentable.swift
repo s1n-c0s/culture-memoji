@@ -124,14 +124,24 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         if context.coordinator.currentAvatar !== avatar {
             context.coordinator.currentAvatar = avatar
             context.coordinator.currentPose = activePoseName
+            
+            // 1. Purge any lingering sticker props / camera offsets from previous avatar
+            AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.0)
+            
+            // 2. Set the newly selected avatar instance
             AvatarKitBridge.shared.setAvatar(avatar, on: avtView, clone: clone)
+            
+            // 3. Immediately apply the current active emote to the new character
             if let pose = activePoseName {
-                AvatarKitBridge.shared.applyStickerPose(
-                    named: pose,
-                    to: avtView,
-                    animojiNamed: isAnimoji ? animojiName : nil,
-                    duration: 0.0
-                )
+                DispatchQueue.main.async {
+                    guard context.coordinator.currentAvatar === avatar else { return }
+                    AvatarKitBridge.shared.applyStickerPose(
+                        named: pose,
+                        to: avtView,
+                        animojiNamed: isAnimoji ? animojiName : nil,
+                        duration: 0.0
+                    )
+                }
             } else {
                 AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.0)
             }

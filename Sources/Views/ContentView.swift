@@ -55,7 +55,6 @@ public struct ContentView: View {
             get: { selectedAvatarId },
             set: { newId in
                 if let id = newId {
-                    activePoseName = nil
                     AvatarKitBridge.shared.cancelPendingStickerRenders()
                     ensureAvatarLoaded(forId: id)
                     selectedAvatarId = id
@@ -208,7 +207,6 @@ public struct ContentView: View {
         }
         .onChange(of: selectedAvatarId) { _, newId in
             if let id = newId {
-                activePoseName = nil
                 AvatarKitBridge.shared.cancelPendingStickerRenders()
                 ensureAvatarLoaded(forId: id)
             }
