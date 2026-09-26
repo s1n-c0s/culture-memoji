@@ -201,6 +201,9 @@ public struct SidebarView: View {
                 // Emote tab button
                 Button(action: {
                     currentTab = .emote
+                    if activePoseName == nil, let first = filteredEmotes.first {
+                        activePoseName = first.name
+                    }
                 }) {
                     HStack(spacing: 7) {
                         Image(systemName: "sparkles")
@@ -429,6 +432,12 @@ public struct SidebarView: View {
     
     // MARK: - Emote Content
     
+    private func isEmoteSelected(_ sticker: StickerItem) -> Bool {
+        guard let active = activePoseName else { return false }
+        return active.caseInsensitiveCompare(sticker.name) == .orderedSame
+            || active.caseInsensitiveCompare(sticker.id) == .orderedSame
+    }
+    
     private var emoteContent: some View {
         let avatarObj = selectedAvatarId != nil ? avatarObjects[selectedAvatarId!] : nil
         let animojiFlag = isAnimoji
@@ -462,10 +471,10 @@ public struct SidebarView: View {
                             avatarObject: avatarObj,
                             isAnimoji: animojiFlag,
                             animojiName: animojiVal,
-                            isSelected: activePoseName == sticker.name,
+                            isSelected: isEmoteSelected(sticker),
                             isFavorite: favorites.isEmoteFavorite(sticker.name),
                             onSelect: {
-                                if activePoseName == sticker.name {
+                                if isEmoteSelected(sticker) {
                                     activePoseName = nil
                                 } else {
                                     activePoseName = sticker.name
@@ -488,10 +497,10 @@ public struct SidebarView: View {
                             avatarObject: avatarObj,
                             isAnimoji: animojiFlag,
                             animojiName: animojiVal,
-                            isSelected: activePoseName == sticker.name,
+                            isSelected: isEmoteSelected(sticker),
                             isFavorite: favorites.isEmoteFavorite(sticker.name),
                             onSelect: {
-                                if activePoseName == sticker.name {
+                                if isEmoteSelected(sticker) {
                                     activePoseName = nil
                                 } else {
                                     activePoseName = sticker.name

@@ -57,10 +57,16 @@ public struct ContentView: View {
                 if let id = newId {
                     AvatarKitBridge.shared.cancelPendingStickerRenders()
                     ensureAvatarLoaded(forId: id)
-                    if currentTab == .character {
-                        activePoseName = nil
-                    }
                     selectedAvatarId = id
+                    
+                    // Ensure active emote stays active and outlined across character switches
+                    if let active = activePoseName {
+                        let stickers = stickersForCurrentAvatar()
+                        if !stickers.contains(where: { $0.name.caseInsensitiveCompare(active) == .orderedSame }) {
+                            // If previous pose is not supported on the newly selected character, fallback to first available
+                            activePoseName = stickers.first?.name
+                        }
+                    }
                 } else {
                     selectedAvatarId = nil
                 }
