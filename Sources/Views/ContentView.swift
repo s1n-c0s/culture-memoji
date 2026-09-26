@@ -326,8 +326,30 @@ public struct ContentView: View {
                 isSidebarCollapsed.toggle()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleSidebarTabRequested)) { _ in
+            toggleSidebarTab()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .toggleFullScreenRequested)) { _ in
             toggleFullScreen()
+        }
+    }
+    
+    private func toggleSidebarTab() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+            if isSidebarCollapsed {
+                isSidebarCollapsed = false
+            }
+            if currentTab == .character {
+                currentTab = .emote
+                if activePoseName == nil {
+                    let stickers = stickersForCurrentAvatar()
+                    if let first = stickers.first {
+                        activePoseName = first.name
+                    }
+                }
+            } else {
+                currentTab = .character
+            }
         }
     }
     

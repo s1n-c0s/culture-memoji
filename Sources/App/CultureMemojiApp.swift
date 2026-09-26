@@ -7,6 +7,7 @@ public extension Notification.Name {
     static let resetCameraAndPoseRequested = Notification.Name("resetCameraAndPoseRequested")
     static let toggleSidebarRequested = Notification.Name("toggleSidebarRequested")
     static let toggleFullScreenRequested = Notification.Name("toggleFullScreenRequested")
+    static let toggleSidebarTabRequested = Notification.Name("toggleSidebarTabRequested")
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -14,11 +15,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
         
-        // Global key monitor for Control+C and Command+C
+        // Global key monitor for shortcuts
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let isC = event.keyCode == 8 || event.charactersIgnoringModifiers?.lowercased() == "c"
             let hasControl = event.modifierFlags.contains(.control)
             let hasCommand = event.modifierFlags.contains(.command)
+            let hasOption = event.modifierFlags.contains(.option)
             
             if isC && (hasControl || hasCommand) {
                 // If user is currently typing/selecting text in a text view, allow normal text copy
@@ -30,6 +32,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: .copyCurrentAvatarRequested, object: nil)
                 return nil
             }
+            
+            // Tab key (keyCode 48) toggles between Character and Emote tabs
+            let isTab = event.keyCode == 48 && !hasCommand && !hasControl && !hasOption
+            if isTab {
+                // Don't intercept if an editor sheet or modal window is open
+                if NSApp.keyWindow?.attachedSheet != nil || NSApp.modalWindow != nil {
+                    return event
+                }
+                NotificationCenter.default.post(name: .toggleSidebarTabRequested, object: nil)
+                return nil
+            }
+            
             return event
         }
     }
@@ -73,6 +87,11 @@ public struct CultureMemojiApp: App {
                     NotificationCenter.default.post(name: .toggleSidebarRequested, object: nil)
                 }
                 .keyboardShortcut("\\", modifiers: .command)
+                
+                Button("Switch Character / Emote Tab") {
+                    NotificationCenter.default.post(name: .toggleSidebarTabRequested, object: nil)
+                }
+                .keyboardShortcut(.tab, modifiers: [])
                 
                 Button("Toggle Full Screen") {
                     NotificationCenter.default.post(name: .toggleFullScreenRequested, object: nil)

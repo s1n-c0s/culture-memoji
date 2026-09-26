@@ -863,6 +863,7 @@ public struct SidebarView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help("Characters (⇥)")
                 
                 // Emote tab button
                 Button(action: {
@@ -891,6 +892,7 @@ public struct SidebarView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help("Emotes (⇥)")
             }
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: currentTab)
             .padding(3)
