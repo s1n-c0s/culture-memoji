@@ -328,8 +328,9 @@ public struct SidebarView: View {
                             RoundedRectangle(cornerRadius: 8)
                                 .stroke(Color.accentColor.opacity(0.28), lineWidth: 1)
                         )
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(SpringPressButtonStyle())
                     .onHover { h in isHoveringNewCharacter = h }
                     .help("Create a new 3D Memoji (⌘N)")
                     

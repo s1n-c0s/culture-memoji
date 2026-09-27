@@ -1,5 +1,21 @@
 import SwiftUI
 import AppKit
+/// Atomic, immutable payload for presenting the Memoji editor sheet.
+/// Conforms to Identifiable to guarantee 100% reliable first-click sheet presentation with no state races.
+public struct EditorContext: Identifiable {
+    public let id = UUID()
+    public let avatar: AnyObject
+    public let name: String
+    public let item: AvatarItem?
+    public let isNew: Bool
+    
+    public init(avatar: AnyObject, name: String, item: AvatarItem? = nil, isNew: Bool = false) {
+        self.avatar = avatar
+        self.name = name
+        self.item = item
+        self.isNew = isNew
+    }
+}
 
 public struct ContentView: View {
     @State private var customMemojis: [AvatarItem] = []
@@ -17,12 +33,8 @@ public struct ContentView: View {
     @State private var avatarStickers: [String: [StickerItem]] = [:]
     @State private var isLoading: Bool = true
     
-    // Editor sheet state
-    @State private var isShowingEditor: Bool = false
-    @State private var editorTargetAvatar: AnyObject? = nil
-    @State private var editorTargetName: String = "My Memoji"
-    @State private var editorTargetItem: AvatarItem? = nil
-    @State private var isNewMemoji: Bool = false
+    // Editor sheet state (unified atomic Identifiable context)
+    @State private var editorContext: EditorContext? = nil
     @State private var toastMessage: String? = nil
     
     // Sidebar collapse & full screen state
@@ -246,8 +258,9 @@ public struct ContentView: View {
                             .padding(.vertical, 8)
                             .background(Color.accentColor)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(SpringPressButtonStyle())
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(AppTheme.stageBackground)
@@ -288,19 +301,22 @@ public struct ContentView: View {
             .frame(minWidth: 500, maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: isSidebarCollapsed ? 520 : 880, minHeight: 560)
-        .sheet(isPresented: $isShowingEditor) {
-            if let avatar = editorTargetAvatar {
-                MemojiEditorView(
-                    avatar: avatar,
-                    name: editorTargetName,
-                    isNew: isNewMemoji,
-                    onSave: { name, savedAvatar in
-                        handleEditorSave(name: name, savedAvatar: savedAvatar)
-                    },
-                    onCancel: {
-                        isShowingEditor = false
-                    }
-                )
+        .sheet(item: $editorContext) { context in
+            MemojiEditorView(
+                avatar: context.avatar,
+                name: context.name,
+                isNew: context.isNew,
+                onSave: { name, savedAvatar in
+                    handleEditorSave(name: name, savedAvatar: savedAvatar, targetItem: context.item)
+                },
+                onCancel: {
+                    editorContext = nil
+                }
+            )
+        }
+        .onAppear {
+            DispatchQueue.main.async {
+                NSApp.windows.first?.makeKeyAndOrderFront(nil)
             }
         }
         .task {
@@ -334,6 +350,14 @@ public struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleFullScreenRequested)) { _ in
             toggleFullScreen()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .newMemojiRequested)) { _ in
+            startCreatingNewMemoji()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .customizeMemojiRequested)) { _ in
+            if let current = selectedAvatarItem, current.isEditable {
+                startEditingMemoji(item: current)
+            }
         }
     }
     
@@ -399,6 +423,12 @@ public struct ContentView: View {
         }
         
         isLoading = false
+        
+        // Ensure customizer engine and neutral avatar are pre-warmed after first UI presentation
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            MemojiCustomizer.shared.prewarm()
+        }
     }
     
     @MainActor
@@ -542,11 +572,12 @@ public struct ContentView: View {
             return
         }
         
-        editorTargetAvatar = newAvatar
-        editorTargetName = "My Memoji \(customMemojis.count + 1)"
-        editorTargetItem = nil
-        isNewMemoji = true
-        isShowingEditor = true
+        self.editorContext = EditorContext(
+            avatar: newAvatar,
+            name: "My Memoji \(customMemojis.count + 1)",
+            item: nil,
+            isNew: true
+        )
     }
     
     @MainActor
@@ -557,12 +588,13 @@ public struct ContentView: View {
             return
         }
         
-        let editableCopy = AvatarKitBridge.shared.cloneAvatar(avatar) ?? avatar
-        editorTargetAvatar = editableCopy
-        editorTargetName = item.displayName
-        editorTargetItem = item
-        isNewMemoji = false
-        isShowingEditor = true
+        // Pass avatar directly — MemojiEditorView performs single isolated clone internally
+        self.editorContext = EditorContext(
+            avatar: avatar,
+            name: item.displayName,
+            item: item,
+            isNew: false
+        )
     }
     
     @MainActor
@@ -629,16 +661,16 @@ public struct ContentView: View {
     }
     
     @MainActor
-    private func handleEditorSave(name: String, savedAvatar: AnyObject) {
+    private func handleEditorSave(name: String, savedAvatar: AnyObject, targetItem: AvatarItem?) {
         guard let data = AvatarKitBridge.shared.dataRepresentation(for: savedAvatar) else {
-            isShowingEditor = false
+            editorContext = nil
             return
         }
         
         AvatarKitBridge.shared.clearPosedStickerCache()
         ThumbnailCache.shared.clear()
         
-        if let existing = editorTargetItem {
+        if let existing = targetItem {
             avatarStickers.removeValue(forKey: existing.id)
             switch existing.sourceType {
             case .customMemoji(let id):
@@ -684,7 +716,7 @@ public struct ContentView: View {
             showToast("Created Memoji '\(name)'")
         }
         
-        isShowingEditor = false
+        editorContext = nil
         
         let savedId = selectedAvatarId
         selectedAvatarId = nil

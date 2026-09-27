@@ -139,11 +139,49 @@ public final class MemojiCustomizer {
     private var presetCache: [CustomizerCategory: [PresetOption]] = [:]
     private var colorCache: [CustomizerCategory: [ColorOption]] = [:]
     
+    // Pre-warmed neutral avatar template for instantaneous 0ms creation
+    private var prewarmedNeutralAvatar: AnyObject?
+    private var isPrewarming: Bool = false
+    
     private init() {
         AvatarKitBridge.shared.loadFrameworksIfNeeded()
         self.avtPresetClass = NSClassFromString("AVTPreset")
         self.avtColorPresetClass = NSClassFromString("AVTColorPreset")
         self.avtMemojiClass = NSClassFromString("AVTMemoji")
+    }
+    
+    // MARK: - Pre-warming
+    
+    /// Pre-warms the customizer engine, caches a base neutral Memoji in memory,
+    /// and pre-populates preset and color caches in the background so opening
+    /// the creation editor is completely instantaneous (0ms delay).
+    public func prewarm() {
+        guard !isPrewarming else { return }
+        isPrewarming = true
+        
+        // 1. Pre-generate and cache a base neutral Memoji in memory
+        if prewarmedNeutralAvatar == nil {
+            prewarmedNeutralAvatar = AvatarKitBridge.shared.loadNeutralMemoji()
+        }
+        
+        // 2. Pre-cache the default editor category (.hair) and primary (.skin)
+        _ = availablePresets(for: .hair)
+        _ = availableColors(for: .hair)
+        _ = availablePresets(for: .skin)
+        _ = availableColors(for: .skin)
+        
+        // 3. Cooperatively pre-cache remaining categories across runloop turns
+        Task { @MainActor in
+            for category in CustomizerCategory.allCases {
+                if category == .hair || category == .skin { continue }
+                await Task.yield()
+                _ = self.availablePresets(for: category)
+                if category.hasColors {
+                    _ = self.availableColors(for: category)
+                }
+            }
+            self.isPrewarming = false
+        }
     }
     
     // MARK: - Available Presets & Colors
@@ -293,9 +331,23 @@ public final class MemojiCustomizer {
     
     // MARK: - Creation & Randomization
     
-    /// Creates a fresh neutral Memoji ready for customization
+    /// Creates a fresh neutral Memoji ready for customization.
+    /// Returns instantly (0ms) using the pre-warmed in-memory template and refreshes the cache in the background.
     public func createNeutralMemoji() -> AnyObject? {
-        return AvatarKitBridge.shared.loadNeutralMemoji()
+        if let cached = prewarmedNeutralAvatar {
+            let clone = AvatarKitBridge.shared.cloneAvatar(cached) ?? cached
+            // Re-stock pre-warmed template in background so subsequent creations remain instant
+            Task { @MainActor in
+                self.prewarmedNeutralAvatar = AvatarKitBridge.shared.loadNeutralMemoji()
+            }
+            return clone
+        }
+        
+        let fresh = AvatarKitBridge.shared.loadNeutralMemoji()
+        Task { @MainActor in
+            self.prewarmedNeutralAvatar = AvatarKitBridge.shared.loadNeutralMemoji()
+        }
+        return fresh
     }
     
     /// Creates a fully randomized Memoji ready for customization

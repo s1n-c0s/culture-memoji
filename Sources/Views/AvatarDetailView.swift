@@ -53,6 +53,7 @@ public struct AvatarDetailView: View {
     @State private var lightingTheme: StudioLightingTheme = .studio
     @State private var isHoveringCopy: Bool = false
     @State private var isHoveringShare: Bool = false
+    @State private var isHoveringCustomize: Bool = false
     @State private var isHoveringReset: Bool = false
     @State private var isShowingDeleteAlert: Bool = false
     @State private var isHoveringHintReset: Bool = false
@@ -547,6 +548,33 @@ public struct AvatarDetailView: View {
                 }
             }
             .help("Share or download avatar (AirDrop, Messages, Downloads)...")
+            
+            // [ 🎨 ] Customize / Edit Model Button (for editable Memojis)
+            if avatarItem.isEditable {
+                Button(action: onEditRequested) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "paintbrush.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Customize")
+                            .font(.system(size: 13.5, weight: .semibold))
+                    }
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 14)
+                    .frame(height: 42)
+                    .background(Color.primary.opacity(isHoveringCustomize ? 0.12 : 0.07))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.primary.opacity(0.1), lineWidth: 1.2)
+                    )
+                    .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.2 : 0.04), radius: 6, x: 0, y: 2)
+                    .contentShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(SpringPressButtonStyle())
+                .keyboardShortcut("e", modifiers: .command)
+                .onHover { h in isHoveringCustomize = h }
+                .help("Customize 3D features, hair, skin, colors & accessories (⌘E)")
+            }
         }
     }
     

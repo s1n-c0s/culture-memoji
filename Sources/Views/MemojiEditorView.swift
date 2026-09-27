@@ -18,6 +18,7 @@ public struct MemojiEditorView: View {
     @State private var mutationId = UUID()
     @State private var previewPose: String? = nil
     @State private var hasUnsavedChanges: Bool = false
+    @StateObject private var stageController = StageViewController()
     
     public init(
         avatar: AnyObject,
@@ -32,10 +33,16 @@ public struct MemojiEditorView: View {
         self.onSave = onSave
         self.onCancel = onCancel
         
-        // Clone initial avatar to work on an isolated editing copy
-        let cloned = AvatarKitBridge.shared.cloneAvatar(avatar) ?? avatar
+        // Clone initial avatar to work on an isolated editing copy (skip redundant clone if it's already an isolated new instance)
+        let cloned = isNew ? avatar : (AvatarKitBridge.shared.cloneAvatar(avatar) ?? avatar)
         self._editingAvatar = State(initialValue: cloned)
         self._avatarName = State(initialValue: name)
+        
+        // Pre-initialize active preset and color so first frame renders immediately without layout flicker
+        let initialPreset = MemojiCustomizer.shared.currentPresetIdentifier(for: .hair, in: cloned)
+        let initialColor = MemojiCustomizer.shared.currentColorName(for: .hair, in: cloned)
+        self._activePresetId = State(initialValue: initialPreset)
+        self._activeColorName = State(initialValue: initialColor)
     }
     
     public var body: some View {
@@ -61,7 +68,9 @@ public struct MemojiEditorView: View {
         .frame(minWidth: 900, minHeight: 640)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
-            syncActiveSelections()
+            if activePresetId == nil || activeColorName == nil {
+                syncActiveSelections()
+            }
         }
         .onChange(of: selectedCategory) { _, _ in
             searchText = ""
@@ -168,7 +177,13 @@ public struct MemojiEditorView: View {
                     avatar: editingAvatar,
                     activePoseName: previewPose,
                     clone: false,
-                    mutationId: mutationId
+                    mutationId: mutationId,
+                    stageController: stageController,
+                    onDoubleTap: {
+                        if let view = stageController.avtView {
+                            AvatarKitBridge.shared.applyCanonicalCameraFraming(to: view, animated: true, duration: 0.25)
+                        }
+                    }
                 )
                 .padding(16)
                 
@@ -187,6 +202,9 @@ public struct MemojiEditorView: View {
                         Divider().frame(height: 10)
                         
                         Button(action: {
+                            if let view = stageController.avtView {
+                                AvatarKitBridge.shared.resetCameraFraming(on: view)
+                            }
                             previewPose = nil
                             mutationId = UUID()
                         }) {
@@ -458,47 +476,18 @@ public struct MemojiEditorView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 32)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140, maximum: 220), spacing: 8)], spacing: 8) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 92, maximum: 110), spacing: 10)], spacing: 12) {
                     ForEach(filtered) { preset in
-                        let isSelected = activePresetId == preset.id
-                        Button(action: {
-                            MemojiCustomizer.shared.apply(preset: preset, to: editingAvatar)
-                            activePresetId = preset.id
-                            mutationId = UUID()
-                            hasUnsavedChanges = true
-                        }) {
-                            HStack(spacing: 8) {
-                                if preset.id.lowercased() == "none" {
-                                    Image(systemName: "slash.circle")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(isSelected ? .white : .secondary)
-                                }
-                                
-                                Text(preset.localizedName)
-                                    .font(.system(size: 11, weight: isSelected ? .bold : .regular))
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-                                
-                                Spacer(minLength: 4)
-                                
-                                if isSelected {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 10, weight: .bold))
-                                        .foregroundColor(.white)
-                                }
+                        PresetCardView(
+                            preset: preset,
+                            isSelected: activePresetId == preset.id,
+                            onSelect: {
+                                MemojiCustomizer.shared.apply(preset: preset, to: editingAvatar)
+                                activePresetId = preset.id
+                                mutationId = UUID()
+                                hasUnsavedChanges = true
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(isSelected ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
-                            .foregroundColor(isSelected ? .white : .primary)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(isSelected ? Color.clear : Color.primary.opacity(0.06), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
+                        )
                     }
                 }
             }

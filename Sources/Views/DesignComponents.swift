@@ -126,3 +126,21 @@ public struct List2RowIcon: View {
         .frame(width: 20, height: 20)
     }
 }
+
+/// Interactive spring button style that provides immediate tactile feedback when clicked
+public struct SpringPressButtonStyle: ButtonStyle {
+    public var scale: CGFloat
+    public var opacity: CGFloat
+    
+    public init(scale: CGFloat = 0.96, opacity: CGFloat = 0.88) {
+        self.scale = scale
+        self.opacity = opacity
+    }
+    
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1.0)
+            .opacity(configuration.isPressed ? opacity : 1.0)
+            .animation(.spring(response: 0.18, dampingFraction: 0.72), value: configuration.isPressed)
+    }
+}

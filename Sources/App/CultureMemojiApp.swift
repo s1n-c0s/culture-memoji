@@ -8,12 +8,35 @@ public extension Notification.Name {
     static let toggleSidebarRequested = Notification.Name("toggleSidebarRequested")
     static let toggleFullScreenRequested = Notification.Name("toggleFullScreenRequested")
     static let toggleSidebarTabRequested = Notification.Name("toggleSidebarTabRequested")
+    static let newMemojiRequested = Notification.Name("newMemojiRequested")
+    static let customizeMemojiRequested = Notification.Name("customizeMemojiRequested")
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    @MainActor private static var hasEnabledFirstMouse = false
+    
+    @MainActor public static func enableFirstMouseAcceptance() {
+        guard !hasEnabledFirstMouse else { return }
+        hasEnabledFirstMouse = true
+        
+        guard let originalMethod = class_getInstanceMethod(NSView.self, #selector(NSView.acceptsFirstMouse(for:))),
+              let swizzledMethod = class_getInstanceMethod(NSView.self, #selector(NSView.cm_acceptsFirstMouse(for:))) else {
+            return
+        }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.enableFirstMouseAcceptance()
+        
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
+        
+        // Ensure window immediately becomes key and pre-warm assets on startup
+        DispatchQueue.main.async {
+            NSApp.windows.first?.makeKeyAndOrderFront(nil)
+            MemojiCustomizer.shared.prewarm()
+        }
         
         // Global key monitor for shortcuts
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -63,6 +86,18 @@ public struct CultureMemojiApp: App {
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
         .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("New 3D Character...") {
+                    NotificationCenter.default.post(name: .newMemojiRequested, object: nil)
+                }
+                .keyboardShortcut("n", modifiers: .command)
+                
+                Button("Customize 3D Character...") {
+                    NotificationCenter.default.post(name: .customizeMemojiRequested, object: nil)
+                }
+                .keyboardShortcut("e", modifiers: .command)
+            }
+            
             CommandGroup(replacing: .saveItem) {
                 Button("Save / Download Image...") {
                     NotificationCenter.default.post(name: .saveImageRequested, object: nil)
@@ -118,5 +153,11 @@ public struct CultureMemojiApp: App {
                 }
             }
         }
+    }
+}
+
+extension NSView {
+    @objc func cm_acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
     }
 }
