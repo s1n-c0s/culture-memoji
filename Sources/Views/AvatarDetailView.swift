@@ -594,6 +594,14 @@ public struct AvatarDetailView: View {
                 AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.0)
             }
             faceTracker.startTracking(on: stageController.avtView)
+            if let pose = activePoseName, !pose.isEmpty, pose != "neutral", let view = stageController.avtView {
+                faceTracker.playEmote(
+                    named: pose,
+                    on: view,
+                    isAnimoji: isAnimoji,
+                    animojiName: animojiName
+                )
+            }
         } else {
             faceTracker.stopTracking()
             if let pose = activePoseName, !pose.isEmpty, pose != "neutral", let view = stageController.avtView {

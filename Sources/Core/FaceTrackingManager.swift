@@ -50,6 +50,8 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
     private nonisolated(unsafe) var displayLink: CVDisplayLink?
 
     // MARK: - Emote overlay state
+    /// Currently active emote pose name. Nil = no emote active.
+    @Published public private(set) var activeEmoteName: String? = nil
     /// Blend shape weights from the currently active emote. Nil = no emote.
     private var emoteWeights: [String: Double]? = nil
     /// 0.0 = pure live tracking, 1.0 = full emote expression blended in.
@@ -66,9 +68,10 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
     /// Blends a sticker emote expression and displays its 3D element emojis (props: hearts,
     /// tears, explosion, halo, confetti, etc.) on top of live head tracking.
     /// Head rotation keeps following your face smoothly in real-time.
+    /// By default (duration = nil), the emote stays active on the model indefinitely until deselected or replaced.
     public func playEmote(named poseName: String, on view: NSView,
                           isAnimoji: Bool = false, animojiName: String? = nil,
-                          duration: Double = 3.0) {
+                          duration: Double? = nil) {
         guard isRunning else { return }
         emoteTask?.cancel()
 
@@ -77,6 +80,8 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
             AvatarKitBridge.shared.removeStickerProps(activePropNodes)
             activePropNodes.removeAll()
         }
+
+        activeEmoteName = poseName
 
         // 2. Attach the 3D element emoji props (tears, hearts, halo, explosion, etc.)
         // directly to the head bone so they turn and tilt in 3D with the user's face,
@@ -97,10 +102,8 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
         emoteWeights = weights
         isEmotePlaying = true
 
-        // 4. Smooth blend in and automatic fade out
-        let fadeIn   = 0.25
-        let fadeOut  = 0.35
-        let holdTime = max(0, duration - fadeIn - fadeOut)
+        // 4. Smooth blend in
+        let fadeIn = 0.25
 
         emoteTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -117,41 +120,63 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
             self.emoteBlend = 1.0
             AvatarKitBridge.shared.setStickerPropsOpacity(self.activePropNodes, opacity: 1.0)
 
-            // Hold emote and element emojis
-            if holdTime > 0 {
-                try? await Task.sleep(nanoseconds: UInt64(holdTime * 1_000_000_000))
-            }
-            guard !Task.isCancelled else { return }
-
-            // Fade out
-            for i in 1...steps {
+            // If a specific temporary duration was requested, hold then fade out.
+            // When duration is nil (default for user selection), STAY ACTIVE INDEFINITELY!
+            if let duration = duration, duration > 0 {
+                let fadeOut = 0.35
+                let holdTime = max(0, duration - fadeIn - fadeOut)
+                if holdTime > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(holdTime * 1_000_000_000))
+                }
                 guard !Task.isCancelled else { return }
-                let progress = 1.0 - Double(i) / Double(steps)
-                self.emoteBlend = progress
-                AvatarKitBridge.shared.setStickerPropsOpacity(self.activePropNodes, opacity: CGFloat(progress))
-                try? await Task.sleep(nanoseconds: UInt64(fadeOut / Double(steps) * 1_000_000_000))
-            }
-            self.emoteBlend    = 0.0
-            self.emoteWeights  = nil
-            self.isEmotePlaying = false
 
-            // Remove element emoji props
-            AvatarKitBridge.shared.removeStickerProps(self.activePropNodes)
-            self.activePropNodes.removeAll()
+                for i in 1...steps {
+                    guard !Task.isCancelled else { return }
+                    let progress = 1.0 - Double(i) / Double(steps)
+                    self.emoteBlend = progress
+                    AvatarKitBridge.shared.setStickerPropsOpacity(self.activePropNodes, opacity: CGFloat(progress))
+                    try? await Task.sleep(nanoseconds: UInt64(fadeOut / Double(steps) * 1_000_000_000))
+                }
+                self.emoteBlend    = 0.0
+                self.emoteWeights  = nil
+                self.isEmotePlaying = false
+                self.activeEmoteName = nil
+
+                AvatarKitBridge.shared.removeStickerProps(self.activePropNodes)
+                self.activePropNodes.removeAll()
+            }
         }
     }
 
-    /// Immediately fades out any active emote, removes element emoji props, and returns to pure live face tracking.
-    public func cancelEmote(on view: NSView? = nil) {
+    /// Smoothly fades out any active emote, removes element emoji props, and returns to pure live face tracking.
+    public func cancelEmote(on view: NSView? = nil, animated: Bool = true) {
         emoteTask?.cancel()
-        emoteTask     = nil
-        emoteWeights  = nil
-        emoteBlend    = 0.0
+        activeEmoteName = nil
         isEmotePlaying = false
+        emoteWeights = nil
 
-        if !activePropNodes.isEmpty {
-            AvatarKitBridge.shared.removeStickerProps(activePropNodes)
-            activePropNodes.removeAll()
+        let propsToRemove = activePropNodes
+        activePropNodes.removeAll()
+
+        if animated && emoteBlend > 0.05 && !propsToRemove.isEmpty {
+            let startBlend = emoteBlend
+            emoteTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                let steps = 10
+                let fadeOut = 0.2
+                for i in 1...steps {
+                    guard !Task.isCancelled else { return }
+                    let progress = startBlend * (1.0 - Double(i) / Double(steps))
+                    self.emoteBlend = progress
+                    AvatarKitBridge.shared.setStickerPropsOpacity(propsToRemove, opacity: CGFloat(progress))
+                    try? await Task.sleep(nanoseconds: UInt64(fadeOut / Double(steps) * 1_000_000_000))
+                }
+                self.emoteBlend = 0.0
+                AvatarKitBridge.shared.removeStickerProps(propsToRemove)
+            }
+        } else {
+            emoteBlend = 0.0
+            AvatarKitBridge.shared.removeStickerProps(propsToRemove)
         }
     }
 

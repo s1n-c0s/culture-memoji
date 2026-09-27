@@ -108,6 +108,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         context.coordinator.currentPose = activePoseName
         context.coordinator.lastMutationId = mutationId
         context.coordinator.onDoubleTap = onDoubleTap
+        context.coordinator.wasTracking = FaceTrackingManager.shared.isRunning
         
         let doubleClick = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleClick(_:)))
         doubleClick.numberOfClicksRequired = 2
@@ -225,31 +226,59 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
                     duration: 0.25
                 )
             }
-        } else if context.coordinator.currentPose != activePoseName {
-            // Update pose when changed (including nil = clear back to neutral)
-            context.coordinator.currentPose = activePoseName
-            if FaceTrackingManager.shared.isRunning {
-                // Live tracking is active — play emote as a one-shot overlay,
-                // then auto-resume blend shape tracking after it finishes.
-                if let pose = activePoseName, !pose.isEmpty, pose != "neutral" {
-                    FaceTrackingManager.shared.playEmote(
-                        named: pose, on: avtView,
-                        isAnimoji: isAnimoji, animojiName: animojiName,
-                        duration: 2.5
+        } else {
+            let isTracking = FaceTrackingManager.shared.isRunning
+            let trackingChanged = context.coordinator.wasTracking != isTracking
+            if trackingChanged {
+                context.coordinator.wasTracking = isTracking
+                if isTracking {
+                    // Tracking just started — if an emote was already active, attach it to live tracking!
+                    if let pose = activePoseName, !pose.isEmpty, pose != "neutral" {
+                        FaceTrackingManager.shared.playEmote(
+                            named: pose, on: avtView,
+                            isAnimoji: isAnimoji, animojiName: animojiName
+                        )
+                    }
+                } else {
+                    // Tracking stopped — clean up emote overlay and restore static pose
+                    FaceTrackingManager.shared.cancelEmote(on: avtView, animated: false)
+                    if let pose = activePoseName, !pose.isEmpty, pose != "neutral" {
+                        AvatarKitBridge.shared.applyStickerPose(
+                            named: pose,
+                            to: avtView,
+                            animojiNamed: isAnimoji ? animojiName : nil,
+                            duration: 0.25
+                        )
+                    } else {
+                        AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.25)
+                    }
+                }
+            }
+            
+            if context.coordinator.currentPose != activePoseName {
+                // Update pose when changed (including nil = clear back to neutral)
+                context.coordinator.currentPose = activePoseName
+                if FaceTrackingManager.shared.isRunning {
+                    // Live tracking is active — blend emote and attach 3D element emojis persistently
+                    if let pose = activePoseName, !pose.isEmpty, pose != "neutral" {
+                        FaceTrackingManager.shared.playEmote(
+                            named: pose, on: avtView,
+                            isAnimoji: isAnimoji, animojiName: animojiName
+                        )
+                    } else {
+                        // Clearing emote while tracking — cancel active emote overlay
+                        FaceTrackingManager.shared.cancelEmote(on: avtView)
+                    }
+                } else if let pose = activePoseName {
+                    AvatarKitBridge.shared.applyStickerPose(
+                        named: pose,
+                        to: avtView,
+                        animojiNamed: isAnimoji ? animojiName : nil,
+                        duration: 0.25
                     )
                 } else {
-                    // Clearing emote while tracking — cancel any active emote overlay
-                    FaceTrackingManager.shared.cancelEmote(on: avtView)
+                    AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.25)
                 }
-            } else if let pose = activePoseName {
-                AvatarKitBridge.shared.applyStickerPose(
-                    named: pose,
-                    to: avtView,
-                    animojiNamed: isAnimoji ? animojiName : nil,
-                    duration: 0.25
-                )
-            } else {
-                AvatarKitBridge.shared.resetToNeutralPose(on: avtView, duration: 0.25)
             }
         }
     }
@@ -274,6 +303,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
         var currentAvatar: AnyObject?
         var currentAvatarId: String?
         var currentPose: String?
+        var wasTracking: Bool = false
         var lastMutationId: UUID?
         var onDoubleTap: (() -> Void)?
         fileprivate var currentFadeOverlay: PassthroughImageView?
