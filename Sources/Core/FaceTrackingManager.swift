@@ -61,39 +61,42 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
 
     // MARK: - Emote API
 
-    /// Blends a sticker emote expression on top of live head tracking.
-    /// The emote's blend-shape weights are extracted directly from the sticker asset —
-    /// NO animation timeline is installed, so `stepSlerp` remains in full control.
-    /// Head rotation keeps following your head the whole time.
+    /// Blends a sticker emote expression and displays its 3D element emojis (props: hearts,
+    /// tears, explosion, halo, confetti, etc.) on top of live head tracking.
+    /// Head rotation keeps following your face smoothly in real-time.
     public func playEmote(named poseName: String, on view: NSView,
                           isAnimoji: Bool = false, animojiName: String? = nil,
-                          duration: Double = 2.5) {
+                          duration: Double = 3.0) {
         guard isRunning else { return }
         emoteTask?.cancel()
 
-        // Extract the emote's static blend shapes from the sticker asset
+        // 1. Attach the sticker configuration to the viewport so element emojis/props
+        // (hearts, tears, explosion cloud, halo, sunglasses, etc.) are rendered in 3D!
+        AvatarKitBridge.shared.applyStickerPose(
+            named: poseName,
+            to: view,
+            animojiNamed: isAnimoji ? animojiName : nil,
+            duration: 0.25
+        )
+
+        // 2. Extract static blend shapes (if any) to crossfade facial expressions
         let weights = AvatarKitBridge.shared.extractStaticPoseWeights(
             named: poseName,
             animojiNamed: isAnimoji ? animojiName : nil
         )
-        guard let w = weights, !w.isEmpty else {
-            // No static pose data — nothing to blend, just ignore
-            return
-        }
-
-        emoteWeights  = w
+        emoteWeights = weights
         isEmotePlaying = true
 
-        // Animate emoteBlend 0→1 over 0.3s (fade-in), hold, then 1→0 over 0.3s (fade-out)
-        let fadeIn   = 0.3
-        let fadeOut  = 0.3
+        // 3. Smooth blend in and automatic fade out
+        let fadeIn   = 0.25
+        let fadeOut  = 0.35
         let holdTime = max(0, duration - fadeIn - fadeOut)
 
         emoteTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
             // Fade in
-            let steps = 18  // ~0.3s at 60fps
+            let steps = 15
             for i in 1...steps {
                 guard !Task.isCancelled else { return }
                 self.emoteBlend = Double(i) / Double(steps)
@@ -101,7 +104,7 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
             }
             self.emoteBlend = 1.0
 
-            // Hold
+            // Hold emote and element emojis
             if holdTime > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(holdTime * 1_000_000_000))
             }
@@ -116,16 +119,24 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
             self.emoteBlend    = 0.0
             self.emoteWeights  = nil
             self.isEmotePlaying = false
+
+            // Clear sticker configuration & remove element emoji props
+            AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.25)
         }
     }
 
-    /// Immediately fades out any active emote and returns to pure live face tracking.
-    public func cancelEmote() {
+    /// Immediately fades out any active emote, removes element emoji props, and returns to pure live face tracking.
+    public func cancelEmote(on view: NSView? = nil) {
         emoteTask?.cancel()
         emoteTask     = nil
         emoteWeights  = nil
         emoteBlend    = 0.0
         isEmotePlaying = false
+
+        let target = view ?? targetStageView
+        if let target {
+            AvatarKitBridge.shared.resetToNeutralPose(on: target, duration: 0.2)
+        }
     }
 
     // MARK: - Public API
@@ -287,6 +298,9 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
                 merged[key] = live * (1.0 - emoteBlend) + emote * emoteBlend
             }
             finalWeights = merged
+        } else if isEmotePlaying {
+            // Emote without static weights (e.g. animated sticker) — don't overwrite face with live tracking
+            finalWeights = [:]
         } else {
             finalWeights = smoothedWeights
         }

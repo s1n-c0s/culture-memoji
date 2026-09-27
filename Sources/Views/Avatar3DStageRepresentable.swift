@@ -239,7 +239,7 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
                     )
                 } else {
                     // Clearing emote while tracking — cancel any active emote overlay
-                    FaceTrackingManager.shared.cancelEmote()
+                    FaceTrackingManager.shared.cancelEmote(on: avtView)
                 }
             } else if let pose = activePoseName {
                 AvatarKitBridge.shared.applyStickerPose(
