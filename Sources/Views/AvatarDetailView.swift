@@ -594,14 +594,9 @@ public struct AvatarDetailView: View {
                 AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.0)
             }
             faceTracker.startTracking(on: stageController.avtView)
-            if let pose = activePoseName, !pose.isEmpty, pose != "neutral", let view = stageController.avtView {
-                faceTracker.playEmote(
-                    named: pose,
-                    on: view,
-                    isAnimoji: isAnimoji,
-                    animojiName: animojiName
-                )
-            }
+            // NOTE: Don't call playEmote here — isRunning is not yet true (async).
+            // The updateNSView trackingChanged block will attach the emote
+            // when isRunning becomes true and triggers a SwiftUI re-render.
         } else {
             faceTracker.stopTracking()
             if let pose = activePoseName, !pose.isEmpty, pose != "neutral", let view = stageController.avtView {

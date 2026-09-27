@@ -73,6 +73,13 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
                           isAnimoji: Bool = false, animojiName: String? = nil,
                           duration: Double? = nil) {
         guard isRunning else { return }
+
+        // ── EARLY EXIT: If this exact emote is already active with props, don't re-trigger.
+        // This prevents SwiftUI re-render cascades from tearing down & rebuilding props (flash bug).
+        if activeEmoteName == poseName, !activePropNodes.isEmpty, isEmotePlaying {
+            return
+        }
+
         emoteTask?.cancel()
 
         // 1. Clean up any previously active props before attaching new ones
@@ -80,8 +87,6 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
             AvatarKitBridge.shared.removeStickerProps(activePropNodes)
             activePropNodes.removeAll()
         }
-
-        activeEmoteName = poseName
 
         // 2. Attach the 3D element emoji props (tears, hearts, halo, explosion, etc.)
         // directly to the head bone so they turn and tilt in 3D with the user's face,
@@ -100,9 +105,15 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
             animojiNamed: isAnimoji ? animojiName : nil
         )
         emoteWeights = weights
+        emoteBlend = 0.0
+
+        // 4. Set @Published state AFTER all prop/weight setup is complete.
+        // This avoids SwiftUI re-render cascades mid-setup that could cause
+        // updateNSView to fire before props are ready, triggering duplicate playEmote calls.
+        activeEmoteName = poseName
         isEmotePlaying = true
 
-        // 4. Smooth blend in
+        // 5. Smooth blend in
         let fadeIn = 0.25
 
         emoteTask = Task { @MainActor [weak self] in
@@ -184,7 +195,10 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
 
     /// Updates the target stage AVTView being driven by face tracking.
     public func updateTargetView(_ view: NSView?) {
-        cancelEmote()
+        // Only cancel emotes if the target view actually changed (different view or nil)
+        if targetStageView !== view {
+            cancelEmote()
+        }
         targetStageView = view
         if let view { AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.0) }
     }

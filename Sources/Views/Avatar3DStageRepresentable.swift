@@ -232,8 +232,9 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
             if trackingChanged {
                 context.coordinator.wasTracking = isTracking
                 if isTracking {
-                    // Tracking just started — if an emote was already active, attach it to live tracking!
-                    if let pose = activePoseName, !pose.isEmpty, pose != "neutral" {
+                    // Tracking just started — if an emote was already selected and NOT yet playing, attach it
+                    if let pose = activePoseName, !pose.isEmpty, pose != "neutral",
+                       FaceTrackingManager.shared.activeEmoteName != pose {
                         FaceTrackingManager.shared.playEmote(
                             named: pose, on: avtView,
                             isAnimoji: isAnimoji, animojiName: animojiName
