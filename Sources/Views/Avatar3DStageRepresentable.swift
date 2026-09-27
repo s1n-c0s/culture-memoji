@@ -230,11 +230,13 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
             let isTracking = FaceTrackingManager.shared.isRunning
             let trackingChanged = context.coordinator.wasTracking != isTracking
             if trackingChanged {
+                fileLog(String(format: "[STAGE] updateNSView — trackingChanged: %d → %d", context.coordinator.wasTracking ? 1 : 0, isTracking ? 1 : 0))
                 context.coordinator.wasTracking = isTracking
                 if isTracking {
                     // Tracking just started — if an emote was already selected and NOT yet playing, attach it
                     if let pose = activePoseName, !pose.isEmpty, pose != "neutral",
                        FaceTrackingManager.shared.activeEmoteName != pose {
+                        fileLog(String(format: "[STAGE] updateNSView — tracking started, attaching emote '%@'", pose))
                         FaceTrackingManager.shared.playEmote(
                             named: pose, on: avtView,
                             isAnimoji: isAnimoji, animojiName: animojiName
@@ -257,6 +259,9 @@ public struct Avatar3DStageRepresentable: NSViewRepresentable {
             }
             
             if context.coordinator.currentPose != activePoseName {
+                fileLog(String(format: "[STAGE] updateNSView — poseChanged: '%@' → '%@', isTracking=%d",
+                      context.coordinator.currentPose ?? "nil", activePoseName ?? "nil",
+                      FaceTrackingManager.shared.isRunning ? 1 : 0))
                 // Update pose when changed (including nil = clear back to neutral)
                 context.coordinator.currentPose = activePoseName
                 if FaceTrackingManager.shared.isRunning {

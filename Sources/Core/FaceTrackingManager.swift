@@ -6,6 +6,21 @@ import SwiftUI
 import simd
 import CoreVideo
 
+func fileLog(_ msg: String) {
+    let url = URL(fileURLWithPath: "/Users/mac/Documents/culture-memoji.log")
+    let line = "\(Date()) - \(msg)\n"
+    print(msg)
+    if let data = line.data(using: .utf8) {
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            handle.closeFile()
+        } else {
+            try? data.write(to: url)
+        }
+    }
+}
+
 /// Real-time live camera face-tracking manager using Apple Vision and AVFoundation.
 ///
 /// Architecture:
@@ -72,13 +87,19 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
     public func playEmote(named poseName: String, on view: NSView,
                           isAnimoji: Bool = false, animojiName: String? = nil,
                           duration: Double? = nil) {
-        guard isRunning else { return }
-
-        // ── EARLY EXIT: If this exact emote is already active with props, don't re-trigger.
-        // This prevents SwiftUI re-render cascades from tearing down & rebuilding props (flash bug).
-        if activeEmoteName == poseName, !activePropNodes.isEmpty, isEmotePlaying {
+        guard isRunning else {
+            fileLog(String(format: "[EMOTE] playEmote('%@')) — SKIPPED: isRunning=false", poseName))
             return
         }
+
+        // ── EARLY EXIT: If this exact emote is already active with props, don't re-trigger.
+        if activeEmoteName == poseName, !activePropNodes.isEmpty, isEmotePlaying {
+            fileLog(String(format: "[EMOTE] playEmote('%@')) — EARLY EXIT (same emote, %d props, playing)", poseName, activePropNodes.count))
+            return
+        }
+
+        fileLog(String(format: "[EMOTE] playEmote('%@')) — STARTING (prev=%@, prevProps=%d, isPlaying=%d)",
+              poseName, activeEmoteName ?? "nil", activePropNodes.count, isEmotePlaying ? 1 : 0))
 
         emoteTask?.cancel()
 
@@ -88,15 +109,14 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
             activePropNodes.removeAll()
         }
 
-        // 2. Attach the 3D element emoji props (tears, hearts, halo, explosion, etc.)
-        // directly to the head bone so they turn and tilt in 3D with the user's face,
-        // WITHOUT installing any sticker timeline animation that would fight head tracking!
+        // 2. Attach the 3D element emoji props directly to the head bone
         let props = AvatarKitBridge.shared.attachStickerProps(
             named: poseName,
             to: view,
             animojiNamed: isAnimoji ? animojiName : nil
         )
         activePropNodes = props
+        fileLog(String(format: "[EMOTE] playEmote('%@')) — attached %d prop nodes", poseName, props.count))
         AvatarKitBridge.shared.setStickerPropsOpacity(props, opacity: 0.0)
 
         // 3. Extract static blend shapes (if any) to crossfade facial expressions
@@ -108,8 +128,6 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
         emoteBlend = 0.0
 
         // 4. Set @Published state AFTER all prop/weight setup is complete.
-        // This avoids SwiftUI re-render cascades mid-setup that could cause
-        // updateNSView to fire before props are ready, triggering duplicate playEmote calls.
         activeEmoteName = poseName
         isEmotePlaying = true
 
@@ -119,10 +137,12 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
         emoteTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
-            // Fade in expression and prop opacity
             let steps = 15
             for i in 1...steps {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    fileLog(String(format: "[EMOTE] playEmote('%@')) — fade-in CANCELLED at step %d/%d", poseName, i, steps))
+                    return
+                }
                 let progress = Double(i) / Double(steps)
                 self.emoteBlend = progress
                 AvatarKitBridge.shared.setStickerPropsOpacity(self.activePropNodes, opacity: CGFloat(progress))
@@ -130,9 +150,29 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
             }
             self.emoteBlend = 1.0
             AvatarKitBridge.shared.setStickerPropsOpacity(self.activePropNodes, opacity: 1.0)
+            fileLog(String(format: "[EMOTE] playEmote('%@')) — fade-in COMPLETE, %d props at full opacity", poseName, self.activePropNodes.count))
+            
+            // CONTINUOUS LOOP to prevent particles from dying:
+            // Re-attach props every 2 seconds while active
+            let loopDuration: UInt64 = 2_000_000_000
+            while !Task.isCancelled && duration == nil {
+                try? await Task.sleep(nanoseconds: loopDuration)
+                guard !Task.isCancelled else { break }
+                
+                // Remove old
+                AvatarKitBridge.shared.removeStickerProps(self.activePropNodes)
+                self.activePropNodes.removeAll()
+                
+                // Attach new
+                let newProps = AvatarKitBridge.shared.attachStickerProps(
+                    named: poseName,
+                    to: view,
+                    animojiNamed: isAnimoji ? animojiName : nil
+                )
+                self.activePropNodes = newProps
+                AvatarKitBridge.shared.setStickerPropsOpacity(newProps, opacity: 1.0)
+            }
 
-            // If a specific temporary duration was requested, hold then fade out.
-            // When duration is nil (default for user selection), STAY ACTIVE INDEFINITELY!
             if let duration = duration, duration > 0 {
                 let fadeOut = 0.35
                 let holdTime = max(0, duration - fadeIn - fadeOut)
@@ -161,6 +201,9 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
 
     /// Smoothly fades out any active emote, removes element emoji props, and returns to pure live face tracking.
     public func cancelEmote(on view: NSView? = nil, animated: Bool = true) {
+        fileLog(String(format: "[EMOTE] cancelEmote() — active=%@, props=%d, blend=%.2f, animated=%d",
+              activeEmoteName ?? "nil", activePropNodes.count, emoteBlend, animated ? 1 : 0))
+        fileLog("Stack trace: \(Thread.callStackSymbols.prefix(15).joined(separator: "\n"))")
         emoteTask?.cancel()
         activeEmoteName = nil
         isEmotePlaying = false
@@ -172,6 +215,9 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
         if animated && emoteBlend > 0.05 && !propsToRemove.isEmpty {
             let startBlend = emoteBlend
             emoteTask = Task { @MainActor [weak self] in
+                defer {
+                    AvatarKitBridge.shared.removeStickerProps(propsToRemove)
+                }
                 guard let self else { return }
                 let steps = 10
                 let fadeOut = 0.2
@@ -183,7 +229,6 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
                     try? await Task.sleep(nanoseconds: UInt64(fadeOut / Double(steps) * 1_000_000_000))
                 }
                 self.emoteBlend = 0.0
-                AvatarKitBridge.shared.removeStickerProps(propsToRemove)
             }
         } else {
             emoteBlend = 0.0
@@ -335,6 +380,7 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
     /// Advances the SLERP one step toward `targetNeckQuat` and pushes the full pose.
     /// Runs at ~60fps via CVDisplayLink — decoupled from Vision's camera frame rate.
     /// Also applies emote blend: emoteBlend∈[0,1] crossfades between live tracking and emote expression.
+    private var _debugFrameCounter: Int = 0
     private func stepSlerp() {
         guard isRunning, let view = targetStageView else { return }
 
@@ -362,6 +408,28 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
         if let pose = AvatarKitBridge.shared.buildAvatarPose(weights: finalWeights,
                                                               neckOrientation: currentNeckQuat) {
             AvatarKitBridge.shared.applyPose(pose, on: view)
+        }
+        
+        // Force props to stay visible (in case their internal animations try to fade them out)
+        if !activePropNodes.isEmpty && emoteBlend > 0.99 {
+            AvatarKitBridge.shared.setStickerPropsOpacity(activePropNodes, opacity: 1.0)
+        }
+
+        // ── DEBUG: check prop survival once per second (~60 frames)
+        _debugFrameCounter += 1
+        if _debugFrameCounter % 60 == 0, !activePropNodes.isEmpty {
+            let parentSel = NSSelectorFromString("parentNode")
+            var orphanCount = 0
+            for node in activePropNodes {
+                if (node as AnyObject).responds(to: parentSel) {
+                    let parent = (node as AnyObject).perform(parentSel)?.takeUnretainedValue()
+                    if parent == nil { orphanCount += 1 }
+                }
+            }
+            if orphanCount > 0 {
+                fileLog(String(format: "[EMOTE] ⚠️ stepSlerp: %d/%d prop nodes ORPHANED (removed from scene by AvatarKit!))",
+                      orphanCount, activePropNodes.count))
+            }
         }
     }
 

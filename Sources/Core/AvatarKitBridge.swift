@@ -476,16 +476,20 @@ public final class AvatarKitBridge {
 
         let neckSel = NSSelectorFromString("neckNode")
         let avatarNodeSel = NSSelectorFromString("avatarNode")
-        let targetParent = (av as AnyObject).perform(neckSel)?.takeUnretainedValue()
-            ?? (av as AnyObject).perform(avatarNodeSel)?.takeUnretainedValue()
-        guard let parent = targetParent else { return [] }
+        let targetAvatarNode = (av as AnyObject).perform(avatarNodeSel)?.takeUnretainedValue()
+        guard let avNode = targetAvatarNode else { return [] }
+        
+        var targetParent = (av as AnyObject).perform(neckSel)?.takeUnretainedValue()
+            ?? avNode
+            
+        let parent = targetParent
 
         let getPosSel = NSSelectorFromString("position")
         let setPosSel = NSSelectorFromString("setPosition:")
         let addSel = NSSelectorFromString("addChildNode:")
 
         var neckOffset = SIMD3<Float>(0, 0, 0)
-        if targetParent === (av as AnyObject).perform(neckSel)?.takeUnretainedValue(),
+        if targetParent !== avNode,
            let mGetNeck = class_getInstanceMethod(type(of: parent), getPosSel) {
             typealias GetPosFunc = @convention(c) (AnyObject, Selector) -> SIMD3<Float>
             neckOffset = unsafeBitCast(method_getImplementation(mGetNeck), to: GetPosFunc.self)(parent, getPosSel)
@@ -511,6 +515,83 @@ public final class AvatarKitBridge {
                 }
                 _ = (parent as AnyObject).perform(addSel, with: n)
                 attachedNodes.append(n)
+                
+                // ── ATTEMPT TO LOOP ANIMATIONS ──
+                func makeLooping(_ obj: AnyObject) {
+                    let keysSel = NSSelectorFromString("animationKeys")
+                    let animSel = NSSelectorFromString("animationForKey:")
+                    let playerAnimSel = NSSelectorFromString("animation")
+                    
+                    if obj.responds(to: keysSel), let keys = obj.perform(keysSel)?.takeUnretainedValue() as? [String] {
+                        for key in keys {
+                            if obj.responds(to: animSel), let player = obj.perform(animSel, with: key)?.takeUnretainedValue() {
+                                let className = String(describing: type(of: player))
+                                print("[EMOTE] Found animation player for key \(key): \(className)")
+                                let setRepeatSel = NSSelectorFromString("setRepeatCount:")
+                                let setLoopSel = NSSelectorFromString("setLoops:")
+                                let setRemovedSel = NSSelectorFromString("setRemovedOnCompletion:")
+                                
+                                if player.responds(to: setRemovedSel) {
+                                    let m = class_getInstanceMethod(type(of: player), setRemovedSel)!
+                                    typealias BoolFunc = @convention(c) (AnyObject, Selector, Bool) -> Void
+                                    unsafeBitCast(method_getImplementation(m), to: BoolFunc.self)(player, setRemovedSel, false)
+                                    print("[EMOTE] Set removedOnCompletion=false on \(className)")
+                                }
+                                
+                                if player.responds(to: setRepeatSel) {
+                                    let m = class_getInstanceMethod(type(of: player), setRepeatSel)!
+                                    typealias FloatFunc = @convention(c) (AnyObject, Selector, Float) -> Void
+                                    unsafeBitCast(method_getImplementation(m), to: FloatFunc.self)(player, setRepeatSel, Float.infinity)
+                                    print("[EMOTE] Set repeatCount=infinity on \(className)")
+                                } else if player.responds(to: setLoopSel) {
+                                    let m = class_getInstanceMethod(type(of: player), setLoopSel)!
+                                    typealias BoolFunc = @convention(c) (AnyObject, Selector, Bool) -> Void
+                                    unsafeBitCast(method_getImplementation(m), to: BoolFunc.self)(player, setLoopSel, true)
+                                    print("[EMOTE] Set loops=true on \(className)")
+                                }
+                                
+                                if player.responds(to: playerAnimSel), let anim = player.perform(playerAnimSel)?.takeUnretainedValue() {
+                                    let innerClass = String(describing: type(of: anim))
+                                    print("[EMOTE] Player has inner animation: \(innerClass)")
+                                    let setRemovedSel = NSSelectorFromString("setRemovedOnCompletion:")
+                                    if anim.responds(to: setRemovedSel) {
+                                        let m = class_getInstanceMethod(type(of: anim), setRemovedSel)!
+                                        typealias BoolFunc = @convention(c) (AnyObject, Selector, Bool) -> Void
+                                        unsafeBitCast(method_getImplementation(m), to: BoolFunc.self)(anim, setRemovedSel, false)
+                                        print("[EMOTE] Set removedOnCompletion=false on inner \(innerClass)")
+                                    }
+                                    if anim.responds(to: setRepeatSel) {
+                                        let m = class_getInstanceMethod(type(of: anim), setRepeatSel)!
+                                        typealias FloatFunc = @convention(c) (AnyObject, Selector, Float) -> Void
+                                        unsafeBitCast(method_getImplementation(m), to: FloatFunc.self)(anim, setRepeatSel, Float.infinity)
+                                        print("[EMOTE] Set repeatCount=infinity on inner \(innerClass)")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    let psSel = NSSelectorFromString("particleSystems")
+                    if obj.responds(to: psSel), let systems = obj.perform(psSel)?.takeUnretainedValue() as? [AnyObject] {
+                        for sys in systems {
+                            let setLoopSel = NSSelectorFromString("setLoops:")
+                            if sys.responds(to: setLoopSel) {
+                                let m = class_getInstanceMethod(type(of: sys), setLoopSel)!
+                                typealias BoolFunc = @convention(c) (AnyObject, Selector, Bool) -> Void
+                                unsafeBitCast(method_getImplementation(m), to: BoolFunc.self)(sys, setLoopSel, true)
+                                print("[EMOTE] Set loops=true on particle system")
+                            }
+                        }
+                    }
+                    
+                    let childSel = NSSelectorFromString("childNodes")
+                    if obj.responds(to: childSel), let children = obj.perform(childSel)?.takeUnretainedValue() as? [AnyObject] {
+                        for child in children {
+                            makeLooping(child)
+                        }
+                    }
+                }
+                makeLooping(n)
             }
         }
 
@@ -531,11 +612,21 @@ public final class AvatarKitBridge {
     public func setStickerPropsOpacity(_ nodes: [AnyObject], opacity: CGFloat) {
         guard let vfxNodeClass = NSClassFromString("VFXNode") else { return }
         let setOpSel = NSSelectorFromString("setOpacity:")
+        let setHiddenSel = NSSelectorFromString("setHidden:")
+        
         guard let m = class_getInstanceMethod(vfxNodeClass, setOpSel) else { return }
         typealias SetOpFunc = @convention(c) (AnyObject, Selector, CGFloat) -> Void
         let callable = unsafeBitCast(method_getImplementation(m), to: SetOpFunc.self)
+        
+        let mHidden = class_getInstanceMethod(vfxNodeClass, setHiddenSel)
+        typealias SetHiddenFunc = @convention(c) (AnyObject, Selector, Bool) -> Void
+        let hiddenCallable = mHidden != nil ? unsafeBitCast(method_getImplementation(mHidden!), to: SetHiddenFunc.self) : nil
+        
         for node in nodes {
             callable(node, setOpSel, opacity)
+            if let hc = hiddenCallable {
+                hc(node, setHiddenSel, false)
+            }
         }
     }
 
