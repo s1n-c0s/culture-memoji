@@ -36,6 +36,7 @@ public struct AvatarDetailView: View {
     public let onResetPoseAndCamera: () -> Void
     public let onEditRequested: () -> Void
     public let onRenameRequested: ((String) -> Void)?
+    public let onDeleteRequested: (() -> Void)?
     public let onCopiedNotification: ((String) -> Void)?
     public let isFullScreen: Bool
     public let onToggleFullScreen: (() -> Void)?
@@ -53,6 +54,8 @@ public struct AvatarDetailView: View {
     @State private var isHoveringCopy: Bool = false
     @State private var isHoveringShare: Bool = false
     @State private var isHoveringReset: Bool = false
+    @State private var isHoveringDelete: Bool = false
+    @State private var isShowingDeleteAlert: Bool = false
     @State private var isHoveringHintReset: Bool = false
     @State private var isHoveringFullScreen: Bool = false
     @State private var resetSpinDegrees: Double = 0
@@ -67,6 +70,7 @@ public struct AvatarDetailView: View {
         onResetPoseAndCamera: @escaping () -> Void,
         onEditRequested: @escaping () -> Void = {},
         onRenameRequested: ((String) -> Void)? = nil,
+        onDeleteRequested: (() -> Void)? = nil,
         onCopiedNotification: ((String) -> Void)? = nil,
         onToggleFullScreen: (() -> Void)? = nil
     ) {
@@ -77,6 +81,7 @@ public struct AvatarDetailView: View {
         self.onResetPoseAndCamera = onResetPoseAndCamera
         self.onEditRequested = onEditRequested
         self.onRenameRequested = onRenameRequested
+        self.onDeleteRequested = onDeleteRequested
         self.onCopiedNotification = onCopiedNotification
         self.onToggleFullScreen = onToggleFullScreen
     }
@@ -145,6 +150,13 @@ public struct AvatarDetailView: View {
                 if avatarItem.isEditable {
                     Button(action: onEditRequested) {
                         Label("Customize 3D Memoji...", systemImage: "paintbrush")
+                    }
+                }
+                
+                if let _ = onDeleteRequested {
+                    Divider()
+                    Button(role: .destructive, action: { isShowingDeleteAlert = true }) {
+                        Label("Delete Model...", systemImage: "trash")
                     }
                 }
             }
@@ -303,6 +315,16 @@ public struct AvatarDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .resetCameraAndPoseRequested)) { _ in
             handleReset()
         }
+        .alert(isPresented: $isShowingDeleteAlert) {
+            Alert(
+                title: Text("Delete '\(avatarItem.displayName)'?"),
+                message: Text("Are you sure you want to delete this model? This action cannot be undone."),
+                primaryButton: .destructive(Text("Delete")) {
+                    onDeleteRequested?()
+                },
+                secondaryButton: .cancel()
+            )
+        }
     }
     
     // MARK: - Top Right Bar (Reset & Camera Icons)
@@ -364,6 +386,26 @@ public struct AvatarDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .help(isLiveCameraActive ? "Stop Camera Face-Tracking" : "Live Camera Face-Tracking Mirror")
+                
+                // Delete Model Button
+                if let _ = onDeleteRequested {
+                    Button(action: { isShowingDeleteAlert = true }) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(isHoveringDelete ? .red : .primary.opacity(0.85))
+                            .frame(width: 32, height: 32)
+                            .background(isHoveringDelete ? Color.red.opacity(0.15) : Color.primary.opacity(0.06))
+                            .clipShape(Circle())
+                            .overlay(
+                                Circle().stroke(isHoveringDelete ? Color.red.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
+                            )
+                            .scaleEffect(isHoveringDelete ? 1.06 : 1.0)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { h in isHoveringDelete = h }
+                    .keyboardShortcut(.delete, modifiers: .command)
+                    .help("Delete Model (⌘⌫)")
+                }
                 
                 // Full Screen Toggle Button
                 Button(action: {

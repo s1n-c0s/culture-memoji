@@ -30,6 +30,10 @@ public final class ThumbnailCache: @unchecked Sendable {
         cache.setObject(image, forKey: key as NSString)
     }
     
+    public func removeImage(forKey key: String) {
+        cache.removeObject(forKey: key as NSString)
+    }
+    
     public func clear() {
         cache.removeAllObjects()
     }

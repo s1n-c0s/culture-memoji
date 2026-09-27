@@ -118,7 +118,7 @@ public struct ContentView: View {
                     onAddNewMemoji: startCreatingNewMemoji,
                     onEditMemoji: startEditingMemoji,
                     onDuplicateMemoji: duplicateMemoji,
-                    onDeleteCustomMemoji: deleteCustomMemoji,
+                    onDeleteAvatar: deleteAvatar,
                     onRenameMemoji: renameMemoji,
                     onRefreshRequested: reloadData,
                     onCopySticker: copyStickerToClipboard,
@@ -207,6 +207,9 @@ public struct ContentView: View {
                         },
                         onRenameRequested: { newName in
                             renameAvatar(item: current, newName: newName)
+                        },
+                        onDeleteRequested: {
+                            deleteAvatar(item: current)
                         },
                         onCopiedNotification: { msg in
                             showToast(msg)
@@ -374,10 +377,13 @@ public struct ContentView: View {
         self.userMemojis = dbUsers
         
         // 3. Apple built-in Animojis from AvatarKit
+        let hiddenIds = AvatarDatabaseReader.shared.hiddenAvatarIds()
         let names = AvatarKitBridge.shared.animojiNames()
-        self.builtinAnimojis = names.map { name in
-            AvatarItem(
-                id: "animoji_\(name)",
+        self.builtinAnimojis = names.compactMap { name in
+            let id = "animoji_\(name)"
+            if hiddenIds.contains(id) { return nil }
+            return AvatarItem(
+                id: id,
                 displayName: name.capitalized,
                 sourceType: .builtinAnimoji(name: name)
             )
@@ -689,17 +695,36 @@ public struct ContentView: View {
     }
     
     @MainActor
-    private func deleteCustomMemoji(item: AvatarItem) {
-        _ = AvatarDatabaseReader.shared.deleteCustomMemoji(id: item.id)
+    private func deleteAvatar(item: AvatarItem) {
+        // 1. Remove from backing storage by sourceType
+        switch item.sourceType {
+        case .customMemoji(let id):
+            _ = AvatarDatabaseReader.shared.deleteCustomMemoji(id: id)
+            customMemojis.removeAll { $0.id == item.id }
+        case .userMemoji(let uuid):
+            _ = AvatarDatabaseReader.shared.deleteUserMemoji(uuid: uuid)
+            userMemojis.removeAll { $0.id == item.id }
+        case .randomMemoji:
+            AvatarDatabaseReader.shared.hideAvatar(id: item.id)
+            randomMemojis.removeAll { $0.id == item.id }
+        case .builtinAnimoji:
+            AvatarDatabaseReader.shared.hideAvatar(id: item.id)
+            builtinAnimojis.removeAll { $0.id == item.id }
+        }
+        
+        // 2. Clean order, favorites, in-memory caches
         CharacterOrderManager.shared.remove(id: item.id)
-        customMemojis.removeAll { $0.id == item.id }
+        FavoritesManager.shared.removeCharacterFavorite(item.id)
         avatarObjects.removeValue(forKey: item.id)
         avatarStickers.removeValue(forKey: item.id)
+        ThumbnailCache.shared.removeImage(forKey: "avatar_\(item.id)")
         
         showToast("Deleted '\(item.displayName)'")
         
+        // 3. Select next available character if deleted item was selected
         if selectedAvatarId == item.id {
-            selectedAvatarId = customMemojis.first?.id ?? userMemojis.first?.id ?? builtinAnimojis.first?.id
+            let nextItem = customMemojis.first ?? userMemojis.first ?? randomMemojis.first ?? builtinAnimojis.first
+            selectedAvatarId = nextItem?.id
             if let nextId = selectedAvatarId {
                 ensureAvatarLoaded(forId: nextId)
             }

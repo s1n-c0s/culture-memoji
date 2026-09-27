@@ -18,7 +18,7 @@ public struct SidebarView: View {
     public let onAddNewMemoji: () -> Void
     public let onEditMemoji: (AvatarItem) -> Void
     public let onDuplicateMemoji: ((AvatarItem) -> Void)?
-    public let onDeleteCustomMemoji: (AvatarItem) -> Void
+    public let onDeleteAvatar: (AvatarItem) -> Void
     public let onRenameMemoji: ((AvatarItem) -> Void)?
     public let onRefreshRequested: () -> Void
     public let onCopySticker: ((StickerItem) -> Void)?
@@ -33,6 +33,7 @@ public struct SidebarView: View {
     @State private var isSelectionMode: Bool = false
     @State private var selectedCharacterIds: Set<String> = []
     @State private var isShowingDeleteBatchAlert: Bool = false
+    @State private var singleItemToDelete: AvatarItem? = nil
     @State private var isHoveringCollapse: Bool = false
     @State private var isHoveringSearch: Bool = false
     @State private var isHoveringNewCharacter: Bool = false
@@ -58,7 +59,7 @@ public struct SidebarView: View {
         onAddNewMemoji: @escaping () -> Void,
         onEditMemoji: @escaping (AvatarItem) -> Void,
         onDuplicateMemoji: ((AvatarItem) -> Void)? = nil,
-        onDeleteCustomMemoji: @escaping (AvatarItem) -> Void,
+        onDeleteAvatar: @escaping (AvatarItem) -> Void,
         onRenameMemoji: ((AvatarItem) -> Void)? = nil,
         onRefreshRequested: @escaping () -> Void,
         onCopySticker: ((StickerItem) -> Void)? = nil,
@@ -77,7 +78,7 @@ public struct SidebarView: View {
         self.onAddNewMemoji = onAddNewMemoji
         self.onEditMemoji = onEditMemoji
         self.onDuplicateMemoji = onDuplicateMemoji
-        self.onDeleteCustomMemoji = onDeleteCustomMemoji
+        self.onDeleteAvatar = onDeleteAvatar
         self.onRenameMemoji = onRenameMemoji
         self.onRefreshRequested = onRefreshRequested
         self.onCopySticker = onCopySticker
@@ -201,11 +202,28 @@ public struct SidebarView: View {
             }
         }
         .alert(isPresented: $isShowingDeleteBatchAlert) {
-            Alert(
-                title: Text("Delete \(deletableSelectedItems.count) Custom Memoji\(deletableSelectedItems.count > 1 ? "s" : "")?"),
-                message: Text("This action cannot be undone."),
+            let count = deletableSelectedItems.count
+            let title = count == 1
+                ? "Delete '\(deletableSelectedItems.first?.displayName ?? "Character")'?"
+                : "Delete \(count) Characters?"
+            let message = count == 1
+                ? "Are you sure you want to delete this character? This action cannot be undone."
+                : "Are you sure you want to delete these \(count) characters? This action cannot be undone."
+            return Alert(
+                title: Text(title),
+                message: Text(message),
                 primaryButton: .destructive(Text("Delete")) {
                     batchDeleteSelected()
+                },
+                secondaryButton: .cancel()
+            )
+        }
+        .alert(item: $singleItemToDelete) { item in
+            Alert(
+                title: Text("Delete '\(item.displayName)'?"),
+                message: Text("Are you sure you want to delete this character? This action cannot be undone."),
+                primaryButton: .destructive(Text("Delete")) {
+                    onDeleteAvatar(item)
                 },
                 secondaryButton: .cancel()
             )
@@ -493,7 +511,7 @@ public struct SidebarView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(deletableSelectedItems.isEmpty)
-                    .help(deletableSelectedItems.count > 0 ? "Delete \(deletableSelectedItems.count) Custom Memoji(s)" : "Only custom studio Memojis can be deleted")
+                    .help(deletableSelectedItems.count > 0 ? (deletableSelectedItems.count == 1 ? "Delete '\(deletableSelectedItems[0].displayName)'" : "Delete \(deletableSelectedItems.count) Characters") : "Select one or more characters to delete")
                     
                     // Done button
                     Button(action: {
@@ -571,9 +589,9 @@ public struct SidebarView: View {
                             onDuplicate: onDuplicateMemoji != nil ? {
                                 onDuplicateMemoji?(item)
                             } : nil,
-                            onDelete: item.isCustomMemoji ? {
-                                onDeleteCustomMemoji(item)
-                            } : nil,
+                            onDelete: {
+                                singleItemToDelete = item
+                            },
                             onRename: onRenameMemoji != nil ? {
                                 onRenameMemoji?(item)
                             } : nil,
@@ -665,6 +683,15 @@ public struct SidebarView: View {
                             onEdit: {
                                 onEditMemoji(item)
                             },
+                            onRename: onRenameMemoji != nil ? {
+                                onRenameMemoji?(item)
+                            } : nil,
+                            onDuplicate: onDuplicateMemoji != nil ? {
+                                onDuplicateMemoji?(item)
+                            } : nil,
+                            onDelete: {
+                                singleItemToDelete = item
+                            },
                             onHoldClick: {
                                 if !isSelectionMode {
                                     withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
@@ -740,7 +767,7 @@ public struct SidebarView: View {
     }
     
     private var deletableSelectedItems: [AvatarItem] {
-        filteredCharacters.filter { selectedCharacterIds.contains($0.id) && $0.isCustomMemoji }
+        filteredCharacters.filter { selectedCharacterIds.contains($0.id) }
     }
     
     private func batchMoveToTop() {
@@ -784,7 +811,7 @@ public struct SidebarView: View {
     private func batchDeleteSelected() {
         let items = deletableSelectedItems
         for item in items {
-            onDeleteCustomMemoji(item)
+            onDeleteAvatar(item)
             selectedCharacterIds.remove(item.id)
         }
         if selectedCharacterIds.isEmpty {

@@ -36,12 +36,14 @@ public final class AvatarDatabaseReader: Sendable {
             return []
         }
         
+        let hiddenIds = hiddenAvatarIds()
         var items: [AvatarItem] = []
         for file in files where file.hasSuffix(".json") {
             let path = (customAvatarsDirectoryPath as NSString).appendingPathComponent(file)
             guard let fileData = try? Data(contentsOf: URL(fileURLWithPath: path)),
                   let json = try? JSONSerialization.jsonObject(with: fileData) as? [String: Any],
                   let id = json["id"] as? String,
+                  !hiddenIds.contains(id),
                   let name = json["name"] as? String else {
                 continue
             }
@@ -167,6 +169,70 @@ public final class AvatarDatabaseReader: Sendable {
         return stepResult == SQLITE_DONE && sqlite3_changes(db) > 0
     }
     
+    /// Deletes a system Memoji from Apple's CoreData avatars.db and clears its cached stickers
+    public func deleteUserMemoji(uuid: String) -> Bool {
+        // Also remove any cached stickers on disk
+        if FileManager.default.fileExists(atPath: stickersDirectoryPath),
+           let files = try? FileManager.default.contentsOfDirectory(atPath: stickersDirectoryPath) {
+            let prefix = uuid.uppercased()
+            for file in files where file.uppercased().hasPrefix(prefix) {
+                let filePath = (stickersDirectoryPath as NSString).appendingPathComponent(file)
+                try? FileManager.default.removeItem(atPath: filePath)
+            }
+        }
+        
+        hideAvatar(id: uuid)
+        
+        guard FileManager.default.fileExists(atPath: dbPath) else { return true }
+        
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_close(db) }
+        
+        let query = "DELETE FROM ZAVATAR WHERE hex(ZIDENTIFIER) = ? OR Z_PK = ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+        
+        let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        let cleanHex = uuid.replacingOccurrences(of: "-", with: "").uppercased()
+        sqlite3_bind_text(stmt, 1, (cleanHex as NSString).utf8String, -1, SQLITE_TRANSIENT)
+        
+        var pk = 0
+        if uuid.hasPrefix("Avatar-"), let parsedPk = Int(uuid.replacingOccurrences(of: "Avatar-", with: "")) {
+            pk = parsedPk
+        }
+        sqlite3_bind_int(stmt, 2, Int32(pk))
+        
+        let stepResult = sqlite3_step(stmt)
+        return stepResult == SQLITE_DONE
+    }
+    
+    // MARK: - Hidden / Deleted Avatars Persistence
+    
+    private let hiddenAvatarsKey = "culture_memoji_hidden_avatar_ids"
+    
+    public func hiddenAvatarIds() -> Set<String> {
+        let arr = UserDefaults.standard.stringArray(forKey: hiddenAvatarsKey) ?? []
+        return Set(arr)
+    }
+    
+    public func hideAvatar(id: String) {
+        var set = hiddenAvatarIds()
+        set.insert(id)
+        UserDefaults.standard.set(Array(set), forKey: hiddenAvatarsKey)
+    }
+    
+    public func unhideAvatar(id: String) {
+        var set = hiddenAvatarIds()
+        set.remove(id)
+        UserDefaults.standard.set(Array(set), forKey: hiddenAvatarsKey)
+    }
+    
     /// Reads all user-created Memojis stored in Apple's Animoji SQLite CoreData database
     public func fetchUserMemojis() -> [AvatarItem] {
         guard FileManager.default.fileExists(atPath: dbPath) else {
@@ -179,6 +245,7 @@ public final class AvatarDatabaseReader: Sendable {
         }
         defer { sqlite3_close(db) }
         
+        let hiddenIds = hiddenAvatarIds()
         var items: [AvatarItem] = []
         let query = "SELECT Z_PK, hex(ZIDENTIFIER), ZAVATARDATA FROM ZAVATAR ORDER BY Z_PK ASC;"
         var stmt: OpaquePointer?
@@ -191,6 +258,10 @@ public final class AvatarDatabaseReader: Sendable {
                 if let cStr = sqlite3_column_text(stmt, 1) {
                     let hexStr = String(cString: cStr)
                     uuidString = formatUUID(hexStr)
+                }
+                
+                if hiddenIds.contains(uuidString) || hiddenIds.contains("Avatar-\(pk)") {
+                    continue
                 }
                 
                 var data: Data?

@@ -34,6 +34,13 @@ public final class FavoritesManager: ObservableObject {
         UserDefaults.standard.set(Array(favoriteCharacters), forKey: charKey)
     }
     
+    public func removeCharacterFavorite(_ id: String) {
+        if favoriteCharacters.contains(id) {
+            favoriteCharacters.remove(id)
+            UserDefaults.standard.set(Array(favoriteCharacters), forKey: charKey)
+        }
+    }
+    
     public func isEmoteFavorite(_ name: String) -> Bool {
         favoriteEmotes.contains(name)
     }

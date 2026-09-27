@@ -329,7 +329,7 @@ public struct CharacterCardView: View {
                 if let onDel = onDelete {
                     Divider()
                     Button(role: .destructive, action: onDel) {
-                        Label("Delete Memoji", systemImage: "trash")
+                        Label("Delete Character", systemImage: "trash")
                     }
                 }
             }
@@ -354,6 +354,9 @@ public struct CharacterListRowView: View {
     public let onSelect: () -> Void
     public let onToggleFavorite: () -> Void
     public let onEdit: () -> Void
+    public let onRename: (() -> Void)?
+    public let onDuplicate: (() -> Void)?
+    public let onDelete: (() -> Void)?
     public let onHoldClick: (() -> Void)?
     public let onEnterSelectionMode: (() -> Void)?
     public let onMoveToTop: (() -> Void)?
@@ -378,6 +381,9 @@ public struct CharacterListRowView: View {
         onSelect: @escaping () -> Void,
         onToggleFavorite: @escaping () -> Void,
         onEdit: @escaping () -> Void,
+        onRename: (() -> Void)? = nil,
+        onDuplicate: (() -> Void)? = nil,
+        onDelete: (() -> Void)? = nil,
         onHoldClick: (() -> Void)? = nil,
         onEnterSelectionMode: (() -> Void)? = nil,
         onMoveToTop: (() -> Void)? = nil,
@@ -397,6 +403,9 @@ public struct CharacterListRowView: View {
         self.onSelect = onSelect
         self.onToggleFavorite = onToggleFavorite
         self.onEdit = onEdit
+        self.onRename = onRename
+        self.onDuplicate = onDuplicate
+        self.onDelete = onDelete
         self.onHoldClick = onHoldClick
         self.onEnterSelectionMode = onEnterSelectionMode
         self.onMoveToTop = onMoveToTop
@@ -561,6 +570,18 @@ public struct CharacterListRowView: View {
                     Label("Customize Memoji...", systemImage: "paintbrush")
                 }
                 
+                if let onRen = onRename {
+                    Button(action: onRen) {
+                        Label("Rename...", systemImage: "pencil.line")
+                    }
+                }
+                
+                if let onDup = onDuplicate {
+                    Button(action: onDup) {
+                        Label("Duplicate Memoji", systemImage: "doc.on.doc")
+                    }
+                }
+                
                 Divider()
                 
                 // Reorder Model submenu
@@ -597,6 +618,13 @@ public struct CharacterListRowView: View {
                 
                 Button(action: onToggleFavorite) {
                     Label(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "star.slash" : "star")
+                }
+                
+                if let onDel = onDelete {
+                    Divider()
+                    Button(role: .destructive, action: onDel) {
+                        Label("Delete Character", systemImage: "trash")
+                    }
                 }
             }
         }
