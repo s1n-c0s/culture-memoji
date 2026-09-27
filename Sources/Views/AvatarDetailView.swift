@@ -54,7 +54,6 @@ public struct AvatarDetailView: View {
     @State private var isHoveringCopy: Bool = false
     @State private var isHoveringShare: Bool = false
     @State private var isHoveringReset: Bool = false
-    @State private var isHoveringDelete: Bool = false
     @State private var isShowingDeleteAlert: Bool = false
     @State private var isHoveringHintReset: Bool = false
     @State private var isHoveringFullScreen: Bool = false
@@ -325,6 +324,18 @@ public struct AvatarDetailView: View {
                 secondaryButton: .cancel()
             )
         }
+        .background(
+            Button(action: {
+                if onDeleteRequested != nil {
+                    isShowingDeleteAlert = true
+                }
+            }) {
+                EmptyView()
+            }
+            .keyboardShortcut(.delete, modifiers: .command)
+            .opacity(0)
+            .allowsHitTesting(false)
+        )
     }
     
     // MARK: - Top Right Bar (Reset & Camera Icons)
@@ -386,26 +397,6 @@ public struct AvatarDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .help(isLiveCameraActive ? "Stop Camera Face-Tracking" : "Live Camera Face-Tracking Mirror")
-                
-                // Delete Model Button
-                if let _ = onDeleteRequested {
-                    Button(action: { isShowingDeleteAlert = true }) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(isHoveringDelete ? .red : .primary.opacity(0.85))
-                            .frame(width: 32, height: 32)
-                            .background(isHoveringDelete ? Color.red.opacity(0.15) : Color.primary.opacity(0.06))
-                            .clipShape(Circle())
-                            .overlay(
-                                Circle().stroke(isHoveringDelete ? Color.red.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
-                            )
-                            .scaleEffect(isHoveringDelete ? 1.06 : 1.0)
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { h in isHoveringDelete = h }
-                    .keyboardShortcut(.delete, modifiers: .command)
-                    .help("Delete Model (⌘⌫)")
-                }
                 
                 // Full Screen Toggle Button
                 Button(action: {
