@@ -56,6 +56,8 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
     private var emoteBlend: Double = 0.0
     @Published public var isEmotePlaying: Bool = false
     private var emoteTask: Task<Void, Never>?
+    /// 3D element emojis/props (tears, hearts, halo, etc.) attached directly to the head bone
+    private var activePropNodes: [AnyObject] = []
 
     private override init() { super.init() }
 
@@ -70,16 +72,24 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
         guard isRunning else { return }
         emoteTask?.cancel()
 
-        // 1. Attach the sticker configuration to the viewport so element emojis/props
-        // (hearts, tears, explosion cloud, halo, sunglasses, etc.) are rendered in 3D!
-        AvatarKitBridge.shared.applyStickerPose(
+        // 1. Clean up any previously active props before attaching new ones
+        if !activePropNodes.isEmpty {
+            AvatarKitBridge.shared.removeStickerProps(activePropNodes)
+            activePropNodes.removeAll()
+        }
+
+        // 2. Attach the 3D element emoji props (tears, hearts, halo, explosion, etc.)
+        // directly to the head bone so they turn and tilt in 3D with the user's face,
+        // WITHOUT installing any sticker timeline animation that would fight head tracking!
+        let props = AvatarKitBridge.shared.attachStickerProps(
             named: poseName,
             to: view,
-            animojiNamed: isAnimoji ? animojiName : nil,
-            duration: 0.25
+            animojiNamed: isAnimoji ? animojiName : nil
         )
+        activePropNodes = props
+        AvatarKitBridge.shared.setStickerPropsOpacity(props, opacity: 0.0)
 
-        // 2. Extract static blend shapes (if any) to crossfade facial expressions
+        // 3. Extract static blend shapes (if any) to crossfade facial expressions
         let weights = AvatarKitBridge.shared.extractStaticPoseWeights(
             named: poseName,
             animojiNamed: isAnimoji ? animojiName : nil
@@ -87,7 +97,7 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
         emoteWeights = weights
         isEmotePlaying = true
 
-        // 3. Smooth blend in and automatic fade out
+        // 4. Smooth blend in and automatic fade out
         let fadeIn   = 0.25
         let fadeOut  = 0.35
         let holdTime = max(0, duration - fadeIn - fadeOut)
@@ -95,14 +105,17 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
         emoteTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
-            // Fade in
+            // Fade in expression and prop opacity
             let steps = 15
             for i in 1...steps {
                 guard !Task.isCancelled else { return }
-                self.emoteBlend = Double(i) / Double(steps)
+                let progress = Double(i) / Double(steps)
+                self.emoteBlend = progress
+                AvatarKitBridge.shared.setStickerPropsOpacity(self.activePropNodes, opacity: CGFloat(progress))
                 try? await Task.sleep(nanoseconds: UInt64(fadeIn / Double(steps) * 1_000_000_000))
             }
             self.emoteBlend = 1.0
+            AvatarKitBridge.shared.setStickerPropsOpacity(self.activePropNodes, opacity: 1.0)
 
             // Hold emote and element emojis
             if holdTime > 0 {
@@ -113,15 +126,18 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
             // Fade out
             for i in 1...steps {
                 guard !Task.isCancelled else { return }
-                self.emoteBlend = 1.0 - Double(i) / Double(steps)
+                let progress = 1.0 - Double(i) / Double(steps)
+                self.emoteBlend = progress
+                AvatarKitBridge.shared.setStickerPropsOpacity(self.activePropNodes, opacity: CGFloat(progress))
                 try? await Task.sleep(nanoseconds: UInt64(fadeOut / Double(steps) * 1_000_000_000))
             }
             self.emoteBlend    = 0.0
             self.emoteWeights  = nil
             self.isEmotePlaying = false
 
-            // Clear sticker configuration & remove element emoji props
-            AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.25)
+            // Remove element emoji props
+            AvatarKitBridge.shared.removeStickerProps(self.activePropNodes)
+            self.activePropNodes.removeAll()
         }
     }
 
@@ -133,9 +149,9 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
         emoteBlend    = 0.0
         isEmotePlaying = false
 
-        let target = view ?? targetStageView
-        if let target {
-            AvatarKitBridge.shared.resetToNeutralPose(on: target, duration: 0.2)
+        if !activePropNodes.isEmpty {
+            AvatarKitBridge.shared.removeStickerProps(activePropNodes)
+            activePropNodes.removeAll()
         }
     }
 
@@ -143,6 +159,7 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
 
     /// Updates the target stage AVTView being driven by face tracking.
     public func updateTargetView(_ view: NSView?) {
+        cancelEmote()
         targetStageView = view
         if let view { AvatarKitBridge.shared.resetToNeutralPose(on: view, duration: 0.0) }
     }
@@ -174,6 +191,7 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
 
     /// Stops tracking and smoothly returns the avatar to its neutral pose.
     public func stopTracking() {
+        cancelEmote()
         stopDisplayLink()
         captureQueue.async { [weak self] in
             guard let self else { return }
@@ -298,9 +316,6 @@ public final class FaceTrackingManager: NSObject, ObservableObject {
                 merged[key] = live * (1.0 - emoteBlend) + emote * emoteBlend
             }
             finalWeights = merged
-        } else if isEmotePlaying {
-            // Emote without static weights (e.g. animated sticker) — don't overwrite face with live tracking
-            finalWeights = [:]
         } else {
             finalWeights = smoothedWeights
         }

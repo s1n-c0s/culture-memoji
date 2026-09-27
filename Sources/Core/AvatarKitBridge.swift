@@ -444,7 +444,101 @@ public final class AvatarKitBridge {
         return weights.isEmpty ? nil : weights
     }
 
-    
+    // MARK: - 3D Element Emoji Props (Tears, Hearts, Halo, etc.)
+
+    /// Attaches 3D element emojis/props (tears, hearts, halo, clouds, etc.) directly to the avatar's neck/head bone,
+    /// so they follow head tracking rotation in 3D space WITHOUT installing any timeline animation that would
+    /// interfere with 60fps head pose tracking.
+    /// Returns the list of attached prop nodes so they can be removed when the emote ends.
+    @discardableResult
+    public func attachStickerProps(
+        named stickerName: String,
+        to view: NSView,
+        animojiNamed: String? = nil
+    ) -> [AnyObject] {
+        guard let av = avatar(on: view) else { return [] }
+        guard let cfg = stickerConfiguration(named: stickerName, animojiNamed: animojiNamed) else { return [] }
+        _ = (cfg as AnyObject).perform(NSSelectorFromString("loadIfNeeded"))
+
+        let propsSel = NSSelectorFromString("props")
+        guard (cfg as AnyObject).responds(to: propsSel),
+              let props = (cfg as AnyObject).perform(propsSel)?.takeUnretainedValue() as? [AnyObject],
+              !props.isEmpty else { return [] }
+
+        // Build camera node from sticker configuration to give props exact projection and sizing
+        let camSel = NSSelectorFromString("camera")
+        var camNode: AnyObject? = nil
+        if (cfg as AnyObject).responds(to: camSel),
+           let cam = (cfg as AnyObject).perform(camSel)?.takeUnretainedValue(),
+           (cam as AnyObject).responds(to: NSSelectorFromString("buildNode")) {
+            camNode = (cam as AnyObject).perform(NSSelectorFromString("buildNode"))?.takeUnretainedValue()
+        }
+
+        let neckSel = NSSelectorFromString("neckNode")
+        let avatarNodeSel = NSSelectorFromString("avatarNode")
+        let targetParent = (av as AnyObject).perform(neckSel)?.takeUnretainedValue()
+            ?? (av as AnyObject).perform(avatarNodeSel)?.takeUnretainedValue()
+        guard let parent = targetParent else { return [] }
+
+        let getPosSel = NSSelectorFromString("position")
+        let setPosSel = NSSelectorFromString("setPosition:")
+        let addSel = NSSelectorFromString("addChildNode:")
+
+        var neckOffset = SIMD3<Float>(0, 0, 0)
+        if targetParent === (av as AnyObject).perform(neckSel)?.takeUnretainedValue(),
+           let mGetNeck = class_getInstanceMethod(type(of: parent), getPosSel) {
+            typealias GetPosFunc = @convention(c) (AnyObject, Selector) -> SIMD3<Float>
+            neckOffset = unsafeBitCast(method_getImplementation(mGetNeck), to: GetPosFunc.self)(parent, getPosSel)
+        }
+
+        var attachedNodes: [AnyObject] = []
+        for prop in props {
+            let buildSel = NSSelectorFromString("buildNodeForAvatar:withCamera:options:completionHandler:")
+            typealias BuildFunc = @convention(c) (AnyObject, Selector, AnyObject, AnyObject?, AnyObject?, @convention(block) (AnyObject?) -> Void) -> Void
+            guard let bm = class_getInstanceMethod(type(of: prop), buildSel) else { continue }
+            let bfn = unsafeBitCast(method_getImplementation(bm), to: BuildFunc.self)
+            bfn(prop, buildSel, av, camNode, nil) { node in
+                guard let n = node else { return }
+                if let mGetPos = class_getInstanceMethod(type(of: n), getPosSel),
+                   let mSetPos = class_getInstanceMethod(type(of: n), setPosSel) {
+                    typealias GetPosFunc = @convention(c) (AnyObject, Selector) -> SIMD3<Float>
+                    typealias SetPosFunc = @convention(c) (AnyObject, Selector, SIMD3<Float>) -> Void
+                    let origPos = unsafeBitCast(method_getImplementation(mGetPos), to: GetPosFunc.self)(n, getPosSel)
+                    let adjustedPos = SIMD3<Float>(origPos.x - neckOffset.x,
+                                                   origPos.y - neckOffset.y,
+                                                   origPos.z - neckOffset.z)
+                    unsafeBitCast(method_getImplementation(mSetPos), to: SetPosFunc.self)(n, setPosSel, adjustedPos)
+                }
+                _ = (parent as AnyObject).perform(addSel, with: n)
+                attachedNodes.append(n)
+            }
+        }
+
+        return attachedNodes
+    }
+
+    /// Removes previously attached sticker prop nodes from the avatar hierarchy.
+    public func removeStickerProps(_ nodes: [AnyObject]) {
+        let remSel = NSSelectorFromString("removeFromParentNode")
+        for node in nodes {
+            if (node as AnyObject).responds(to: remSel) {
+                _ = (node as AnyObject).perform(remSel)
+            }
+        }
+    }
+
+    /// Updates the opacity of all attached prop nodes (e.g. for smooth fade-in and fade-out).
+    public func setStickerPropsOpacity(_ nodes: [AnyObject], opacity: CGFloat) {
+        guard let vfxNodeClass = NSClassFromString("VFXNode") else { return }
+        let setOpSel = NSSelectorFromString("setOpacity:")
+        guard let m = class_getInstanceMethod(vfxNodeClass, setOpSel) else { return }
+        typealias SetOpFunc = @convention(c) (AnyObject, Selector, CGFloat) -> Void
+        let callable = unsafeBitCast(method_getImplementation(m), to: SetOpFunc.self)
+        for node in nodes {
+            callable(node, setOpSel, opacity)
+        }
+    }
+
     /// Returns the avatar model attached to the given AVTView or AVTRecordView
     public func avatar(on view: NSView) -> AnyObject? {
         let sel = NSSelectorFromString("avatar")
