@@ -2,20 +2,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "CultureMemoji",
+    name: "MemojiStudio",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .executable(
-            name: "CultureMemoji",
-            targets: ["CultureMemoji"]
+            name: "MemojiStudio",
+            targets: ["MemojiStudio"]
         )
     ],
     dependencies: [],
     targets: [
         .executableTarget(
-            name: "CultureMemoji",
+            name: "MemojiStudio",
             path: "Sources",
             linkerSettings: [
                 .linkedFramework("AppKit"),

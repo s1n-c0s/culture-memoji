@@ -23,7 +23,7 @@ public final class AvatarDatabaseReader: Sendable {
         return FileManager.default.fileExists(atPath: dbPath)
     }
     
-    // MARK: - Custom Memojis (Culture Memoji Storage)
+    // MARK: - Custom Memojis (Memoji Studio Storage)
     
     /// Reads all locally created custom Memojis
     public func fetchCustomAvatars() -> [AvatarItem] {

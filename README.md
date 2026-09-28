@@ -1,4 +1,4 @@
-# Culture Memoji (Memoji Studio)
+# Memoji Studio
 
 A native macOS Swift application to access, render, interact with, and export **Apple System Memojis & Animojis**.
 
@@ -45,13 +45,13 @@ A native macOS Swift application to access, render, interact with, and export **
 
 ### 1. Run directly with Swift Package Manager:
 ```bash
-swift run CultureMemoji
+swift run MemojiStudio
 ```
 
 ### 2. Build the Standalone macOS App (`.app`):
 ```bash
 ./bundle_app.sh
-open CultureMemoji.app
+open "Memoji Studio.app"
 ```
 
 ---

@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-public struct CultureMemojiApp: App {
+public struct MemojiStudioApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     public init() {}

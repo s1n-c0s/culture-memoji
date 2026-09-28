@@ -4,16 +4,16 @@ set -e
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$DIR"
 
-echo "🔨 Building CultureMemoji in release mode..."
+echo "🔨 Building Memoji Studio in release mode..."
 swift build -c release
 
-APP_NAME="CultureMemoji.app"
+APP_NAME="Memoji Studio.app"
 rm -rf "$APP_NAME"
 mkdir -p "$APP_NAME/Contents/MacOS"
 mkdir -p "$APP_NAME/Contents/Resources"
 
 echo "📦 Bundling into $APP_NAME..."
-cp ".build/release/CultureMemoji" "$APP_NAME/Contents/MacOS/CultureMemoji"
+cp ".build/release/MemojiStudio" "$APP_NAME/Contents/MacOS/MemojiStudio"
 
 # Info.plist
 cat << 'EOF' > "$APP_NAME/Contents/Info.plist"
@@ -22,11 +22,11 @@ cat << 'EOF' > "$APP_NAME/Contents/Info.plist"
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>CultureMemoji</string>
+    <string>MemojiStudio</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.culture.CultureMemoji</string>
+    <string>com.culture.MemojiStudio</string>
     <key>CFBundleName</key>
     <string>Memoji Studio</string>
     <key>CFBundlePackageType</key>
